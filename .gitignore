@@ -1,0 +1,7 @@
+.stitch/
+.claude/
+redesign/
+node_modules/
+.DS_Store
+__MACOSX/
+.vscode/
