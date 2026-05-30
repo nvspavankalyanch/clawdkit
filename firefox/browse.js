@@ -1,0 +1,1738 @@
+// Helper function to format datetime in local time for filenames
+function getLocalDateTimeString() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  const seconds = String(now.getSeconds()).padStart(2, '0');
+  return `${year}${month}${day}-${hours}${minutes}${seconds}`;
+}
+
+// Helper function to escape HTML to prevent XSS
+function escapeHtml(str) {
+  if (!str) return '';
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+async function downloadConversationFile(orgId, file) {
+  let url;
+  if (file.file_kind === 'image') {
+    url = `https://claude.ai/api/${orgId}/files/${file.file_uuid}/preview`;
+  } else if (file.file_kind === 'document') {
+    url = `https://claude.ai/api/${orgId}/files/${file.file_uuid}/document_pdf`;
+  } else {
+    return null; // blob — no download endpoint
+  }
+  const res = await fetch(url, { credentials: 'include' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return await res.arrayBuffer();
+}
+
+async function addConversationFilesToFolder(folder, orgId, convData, prefix = '') {
+  const files = collectConversationFiles(convData);
+  const blobItems = [];
+  const usedNames = new Set();
+  for (const file of files) {
+    if (file.file_kind === 'blob') {
+      const size = file.size_bytes ? `${(file.size_bytes / 1024).toFixed(1)} KB` : 'unknown size';
+      blobItems.push(`- **${file.file_name || file.file_uuid}** (${size})`);
+      continue;
+    }
+    let filename = file.file_name || file.file_uuid;
+    if (usedNames.has(filename)) {
+      const dot = filename.lastIndexOf('.');
+      const base = dot > 0 ? filename.slice(0, dot) : filename;
+      const ext  = dot > 0 ? filename.slice(dot)  : '';
+      let i = 2;
+      while (usedNames.has(`${base}_${i}${ext}`)) i++;
+      filename = `${base}_${i}${ext}`;
+    }
+    usedNames.add(filename);
+    try {
+      const buffer = await downloadConversationFile(orgId, file);
+      if (buffer) folder.file(`${prefix}${filename}`, buffer);
+    } catch (e) {
+      console.warn(`Failed to download file ${filename}:`, e);
+    }
+  }
+  if (blobItems.length > 0) {
+    folder.file(`${prefix}_unavailable_files.md`,
+      `# Unavailable Files\n\nThese file types have no download endpoint in the Claude API:\n\n${blobItems.join('\n')}\n`);
+  }
+  return files.length;
+}
+
+// Theme management
+function initTheme() {
+  const savedTheme = localStorage.getItem('theme');
+  if (savedTheme) {
+    document.documentElement.setAttribute('data-theme', savedTheme);
+  } else {
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    document.documentElement.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
+  }
+}
+
+function toggleTheme() {
+  const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+  const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', newTheme);
+  localStorage.setItem('theme', newTheme);
+}
+
+// State management
+let allConversations = [];
+let filteredConversations = [];
+let allProjects = [];
+let projectsMap = {}; // Map project UUID to project name
+let orgId = null;
+let currentSort = 'updated_desc';
+let sortStack = []; // Track multi-level sorting: [{field: 'name', direction: 'asc'}, ...]
+let selectedConversations = new Set(); // Track selected conversation IDs
+let lastCheckedIndex = null; // Track last checked checkbox for shift+click range selection
+let exportTimestamps = {}; // Map conversation UUID to last export timestamp
+let modelSnapshots = {}; // Map conversation UUID to { firstSeen, current, ... } captured by content.js
+let statusFilter = 'all'; // 'all', 'new', 'exported', or 'projects' (search scope = project names)
+let dateFormat = 'mdy'; // 'mdy' or 'dmy'
+let timeFormat = '12h'; // '12h' or '24h'
+let modelDisplay = 'original'; // 'original' (first-seen) or 'current'
+
+// Export timestamp storage helpers
+async function loadExportTimestamps() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['exportTimestamps'], (result) => {
+      exportTimestamps = result.exportTimestamps || {};
+      resolve();
+    });
+  });
+}
+
+// Model snapshots are written by content.js whenever the conversation list is
+// fetched (see recordModelSnapshots). They preserve the original model even
+// after a chat is bounced to a newer one on model retirement.
+async function loadModelSnapshots() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['modelSnapshots'], (result) => {
+      modelSnapshots = result.modelSnapshots || {};
+      resolve();
+    });
+  });
+}
+
+// Resolve which model to show for a conversation. Honors the modelDisplay
+// preference ('original' default, or 'current'). When the chat has been
+// bounced (current differs from first-seen), `bounced` is true and the
+// `*` marker shows the "other" model in its tooltip.
+function getDisplayModel(conv) {
+  const snap = modelSnapshots[conv.uuid];
+  if (snap && snap.firstSeen) {
+    const original = snap.firstSeen;
+    const current = snap.current || snap.firstSeen;
+    const bounced = !!snap.current && snap.current !== snap.firstSeen;
+    const useCurrent = modelDisplay === 'current';
+    return {
+      model: useCurrent ? current : original,
+      other: useCurrent ? original : current,
+      otherLabel: useCurrent ? 'Originally' : 'Currently',
+      bounced
+    };
+  }
+  return { model: conv.model, other: conv.model, otherLabel: '', bounced: false };
+}
+
+async function saveExportTimestamp(conversationId) {
+  exportTimestamps[conversationId] = new Date().toISOString();
+  return new Promise((resolve) => {
+    chrome.storage.local.set({ exportTimestamps }, resolve);
+  });
+}
+
+async function saveExportTimestamps(conversationIds) {
+  const now = new Date().toISOString();
+  for (const id of conversationIds) {
+    exportTimestamps[id] = now;
+  }
+  return new Promise((resolve) => {
+    chrome.storage.local.set({ exportTimestamps }, resolve);
+  });
+}
+
+async function loadDateTimePrefs() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['dateFormat', 'timeFormat'], (result) => {
+      dateFormat = result.dateFormat || 'mdy';
+      timeFormat = result.timeFormat || '12h';
+      resolve();
+    });
+  });
+}
+
+async function loadModelDisplayPref() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['modelDisplay'], (result) => {
+      modelDisplay = result.modelDisplay === 'current' ? 'current' : 'original';
+      resolve();
+    });
+  });
+}
+
+function formatDate(dt) {
+  const m = dt.getMonth() + 1;
+  const d = dt.getDate();
+  const y = dt.getFullYear();
+  return dateFormat === 'dmy' ? `${d}/${m}/${y}` : `${m}/${d}/${y}`;
+}
+
+function formatTime(dt) {
+  if (timeFormat === '24h') {
+    return dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+  }
+  return dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+}
+
+function isNewOrUpdated(conv) {
+  const lastExport = exportTimestamps[conv.uuid];
+  if (!lastExport) return true; // Never exported
+  return new Date(conv.updated_at) > new Date(lastExport);
+}
+
+// When user navigates back to this page from the options page (bfcache hit),
+// reload so changed preferences (model display, date/time format, etc.) take
+// effect without a manual refresh.
+window.addEventListener('pageshow', (event) => {
+  if (event.persisted) window.location.reload();
+});
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', async () => {
+  initTheme();
+  // Wire up UI listeners (settings dropdown, filters, search, etc.) immediately
+  // so the chrome stays interactive while orgId / conversations are still loading.
+  setupEventListeners();
+  const loadingStart = Date.now();
+  await loadOrgId();
+  await loadExportTimestamps();
+  await loadModelSnapshots();
+  await loadDateTimePrefs();
+  await loadModelDisplayPref();
+  const elapsed = Date.now() - loadingStart;
+  if (elapsed < 1000) await new Promise(r => setTimeout(r, 1000 - elapsed));
+  const loadingText = document.getElementById('loadingText');
+  if (loadingText) loadingText.textContent = 'Loading conversations...';
+  await loadConversations();
+});
+
+// Load organization ID — auto-detect first, fall back to stored
+async function loadOrgId() {
+  // Try auto-detect via content script on a claude.ai tab
+  try {
+    const response = await sendMessageToClaudeTab('detectOrgId', {});
+    if (response && response.success && response.orgId) {
+      orgId = response.orgId;
+      // Save for future use / fallback
+      chrome.storage.sync.set({ organizationId: orgId });
+      console.log('Auto-detected organization ID:', orgId);
+      return;
+    }
+  } catch (e) {
+    console.log('Auto-detect org ID failed, falling back to stored:', e);
+  }
+
+  // Fall back to stored org ID
+  return new Promise((resolve) => {
+    chrome.storage.sync.get(['organizationId'], (result) => {
+      orgId = result.organizationId;
+      if (!orgId) {
+        showError('Organization ID not configured. Please open a claude.ai tab and reload this page, or configure it manually in the extension options.');
+      }
+      resolve();
+    });
+  });
+}
+
+// Helper function to find a claude.ai tab and send a message
+function sendMessageToClaudeTab(action, data) {
+  return new Promise((resolve, reject) => {
+    // Find a claude.ai tab using callback
+    chrome.tabs.query({ url: 'https://claude.ai/*' }, (tabs) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+
+      if (!tabs || tabs.length === 0) {
+        reject(new Error('Please open a claude.ai tab first to use this feature'));
+        return;
+      }
+
+      // Send message to the first claude.ai tab
+      chrome.tabs.sendMessage(tabs[0].id, { action, ...data }, (response) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+        } else if (response && response.success) {
+          resolve(response);
+        } else {
+          reject(new Error(response?.error || 'Request failed'));
+        }
+      });
+    });
+  });
+}
+
+// Load projects from API via content script
+async function loadProjects() {
+  if (!orgId) return [];
+
+  try {
+    const response = await sendMessageToClaudeTab('loadProjects', { orgId });
+    const projects = response.projects;
+    console.log(`Loaded ${projects.length} projects:`, projects);
+
+    // Store projects globally and build map
+    allProjects = projects;
+    projectsMap = {};
+    projects.forEach(project => {
+      const projectId = project.uuid || project.id;
+      const projectName = project.name || project.title || 'Untitled Project';
+      projectsMap[projectId] = projectName;
+    });
+
+    return projects;
+  } catch (error) {
+    console.warn('Error loading projects:', error);
+    return [];
+  }
+}
+
+// Load all conversations
+async function loadConversations() {
+  if (!orgId) return;
+
+  try {
+    // Load projects first
+    const projects = await loadProjects();
+
+    const response = await sendMessageToClaudeTab('loadConversations', { orgId });
+    allConversations = response.conversations;
+    console.log(`Loaded ${allConversations.length} conversations`);
+
+    // Log first conversation to see structure
+    if (allConversations.length > 0) {
+      console.log('Sample conversation structure:', allConversations[0]);
+    }
+
+    // Infer models for conversations with null model
+    allConversations = allConversations.map(conv => ({
+      ...conv,
+      model: inferModel(conv)
+    }));
+
+    // Apply initial sort and display
+    applyFiltersAndSort();
+
+    // Enable Export Project button now that projects are loaded
+    populateProjectDropdown();
+
+  } catch (error) {
+    console.error('Error loading conversations:', error);
+    showError(`Failed to load conversations: ${error.message}`);
+  }
+}
+
+// Get project name for a conversation
+function getProjectName(conversation) {
+  const projectId = conversation.project_uuid || conversation.project_id || conversation.projectUuid;
+  if (!projectId) return '-';
+  return projectsMap[projectId] || '-';
+}
+
+// Apply filters and sorting
+function applyFiltersAndSort() {
+  const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+
+  // Filter conversations
+  filteredConversations = allConversations.filter(conv => {
+    // 'projects' mode: search scope becomes the project name, status filters do not apply
+    if (statusFilter === 'projects') {
+      if (!searchTerm) return true;
+      const projectName = getProjectName(conv);
+      return projectName && projectName !== '-' && projectName.toLowerCase().includes(searchTerm);
+    }
+
+    const matchesSearch = !searchTerm ||
+      conv.name.toLowerCase().includes(searchTerm) ||
+      (conv.summary && conv.summary.toLowerCase().includes(searchTerm));
+
+    // Status filter
+    let matchesStatus = true;
+    if (statusFilter === 'new') {
+      matchesStatus = isNewOrUpdated(conv);
+    } else if (statusFilter === 'exported') {
+      matchesStatus = !isNewOrUpdated(conv);
+    }
+
+    return matchesSearch && matchesStatus;
+  });
+
+  // Sort conversations
+  sortConversations();
+
+  // Reset last checked index when list changes
+  lastCheckedIndex = null;
+
+  // Update display
+  displayConversations();
+  updateStats();
+}
+
+// Sort conversations based on current sort setting
+function sortConversations() {
+  // If sortStack is empty, use currentSort from dropdown
+  if (sortStack.length === 0) {
+    const [field, direction] = currentSort.split('_');
+    sortStack = [{field, direction}];
+  }
+
+  filteredConversations.sort((a, b) => {
+    // Try each sort criterion in order until we find a difference
+    for (const {field, direction} of sortStack) {
+      let aVal, bVal;
+
+      switch (field) {
+        case 'name':
+          aVal = a.name.toLowerCase();
+          bVal = b.name.toLowerCase();
+          break;
+        case 'project':
+          aVal = getProjectName(a).toLowerCase();
+          bVal = getProjectName(b).toLowerCase();
+          break;
+        case 'created':
+          aVal = new Date(a.created_at);
+          bVal = new Date(b.created_at);
+          break;
+        case 'updated':
+          aVal = new Date(a.updated_at);
+          bVal = new Date(b.updated_at);
+          break;
+        case 'model':
+          aVal = formatModelName(getDisplayModel(a).model || '').toLowerCase();
+          bVal = formatModelName(getDisplayModel(b).model || '').toLowerCase();
+          break;
+        default:
+          continue;
+      }
+
+      let comparison = 0;
+      if (aVal > bVal) comparison = 1;
+      else if (aVal < bVal) comparison = -1;
+
+      if (comparison !== 0) {
+        return direction === 'asc' ? comparison : -comparison;
+      }
+    }
+    return 0;
+  });
+}
+
+// Handle column header click for sorting
+function handleColumnSort(field) {
+  const existingIndex = sortStack.findIndex(s => s.field === field);
+
+  if (existingIndex === 0) {
+    // Clicking primary sort: toggle direction
+    sortStack[0].direction = sortStack[0].direction === 'asc' ? 'desc' : 'asc';
+  } else if (existingIndex > 0) {
+    // Clicking a secondary sort: move it to primary position
+    const [sortCriterion] = sortStack.splice(existingIndex, 1);
+    sortStack.unshift(sortCriterion);
+  } else {
+    // New sort: add to front with ascending direction
+    sortStack.unshift({field, direction: 'asc'});
+  }
+
+  applyFiltersAndSort();
+}
+
+// Get sort indicator for a column
+function getSortIndicator(field) {
+  const sortIndex = sortStack.findIndex(s => s.field === field);
+
+  // Only show indicator for the primary (most recent) sort
+  if (sortIndex !== 0) return '';
+
+  const {direction} = sortStack[sortIndex];
+  const primaryArrow = direction === 'asc' ? '↑' : '↓';
+  const secondaryArrow = direction === 'asc' ? '↓' : '↑';
+
+  return ` <span class="sort-indicator">${primaryArrow}<sub>${secondaryArrow}</sub></span>`;
+}
+
+// Display conversations in table
+function displayConversations() {
+  const tableContent = document.getElementById('tableContent');
+
+  if (filteredConversations.length === 0) {
+    tableContent.innerHTML = '<div class="no-results">No conversations found</div>';
+    return;
+  }
+
+  let html = `
+    <table>
+      <thead>
+        <tr>
+          <th class="sortable" data-sort="name">Name${getSortIndicator('name')}</th>
+          <th class="sortable" data-sort="project">Project${getSortIndicator('project')}</th>
+          <th class="sortable" data-sort="updated">Updated${getSortIndicator('updated')}</th>
+          <th class="sortable" data-sort="created">Created${getSortIndicator('created')}</th>
+          <th class="sortable" data-sort="model">Model${getSortIndicator('model')}</th>
+          <th>Actions</th>
+          <th class="checkbox-col">
+            <input type="checkbox" id="selectAll" class="select-all-checkbox" ${selectedConversations.size > 0 ? 'checked' : ''}>
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+  `;
+  
+  filteredConversations.forEach((conv, index) => {
+    const updatedDt = new Date(conv.updated_at);
+    const createdDt = new Date(conv.created_at);
+    const updatedDate = formatDate(updatedDt);
+    const updatedTime = formatTime(updatedDt);
+    const createdDate = formatDate(createdDt);
+    const createdTime = formatTime(createdDt);
+    const modelInfo = getDisplayModel(conv);
+    const modelBadgeClass = getModelBadgeClass(modelInfo.model);
+    const projectName = getProjectName(conv);
+
+    const newUpdated = isNewOrUpdated(conv);
+    html += `
+      <tr data-id="${escapeHtml(conv.uuid)}">
+        <td>
+          <div class="conversation-name">
+            ${newUpdated ? '<span class="new-dot" title="New or updated since last export"></span>' : ''}
+            <a href="https://claude.ai/chat/${escapeHtml(conv.uuid)}" target="_blank" title="${escapeHtml(conv.name)}">
+              ${escapeHtml(conv.name)}
+            </a>
+          </div>
+        </td>
+        <td>${escapeHtml(projectName)}</td>
+        <td class="date">${escapeHtml(updatedDate)}<br><span class="time">${escapeHtml(updatedTime)}</span></td>
+        <td class="date">${escapeHtml(createdDate)}<br><span class="time">${escapeHtml(createdTime)}</span></td>
+        <td>
+          ${modelInfo.bounced
+            ? `<span class="model-cell" title="${modelInfo.otherLabel} ${escapeHtml(formatModelName(modelInfo.other))}"><span class="model-badge ${modelBadgeClass}">${escapeHtml(formatModelName(modelInfo.model))}</span><span class="model-bounced ${modelBadgeClass}">*</span></span>`
+            : `<span class="model-badge ${modelBadgeClass}">${escapeHtml(formatModelName(modelInfo.model))}</span>`
+          }
+        </td>
+        <td>
+          <div class="actions">
+            <button class="btn-small btn-export" data-id="${escapeHtml(conv.uuid)}" data-name="${escapeHtml(conv.name)}">
+              Export
+            </button>
+          </div>
+        </td>
+        <td class="checkbox-col">
+          <input type="checkbox" class="conversation-checkbox" data-id="${escapeHtml(conv.uuid)}" data-index="${index}" ${selectedConversations.has(conv.uuid) ? 'checked' : ''}>
+        </td>
+      </tr>
+    `;
+  });
+  
+  html += `
+      </tbody>
+    </table>
+  `;
+
+  // Security: All user-provided data in html has been sanitized with escapeHtml()
+  // before concatenation. The HTML structure itself is static/trusted template code.
+  tableContent.innerHTML = html;
+  
+  // Add export button listeners
+  document.querySelectorAll('.btn-export').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      exportConversation(e.target.dataset.id, e.target.dataset.name);
+    });
+  });
+  
+  // Add checkbox listeners (use 'click' instead of 'change' to capture shift key)
+  document.querySelectorAll('.conversation-checkbox').forEach(checkbox => {
+    checkbox.addEventListener('click', handleCheckboxChange);
+  });
+
+  // Add select all checkbox listener
+  const selectAllCheckbox = document.getElementById('selectAll');
+  if (selectAllCheckbox) {
+    selectAllCheckbox.addEventListener('click', handleSelectAll);
+  }
+
+  // Add sortable header click listeners
+  document.querySelectorAll('.sortable').forEach(header => {
+    header.addEventListener('click', () => {
+      handleColumnSort(header.dataset.sort);
+    });
+  });
+
+  // Update export button text
+  updateExportButtonText();
+
+  // Enable export all button
+  document.getElementById('exportAllBtn').disabled = false;
+}
+
+// Handle individual checkbox change
+function handleCheckboxChange(e) {
+  const checkbox = e.target;
+  const conversationId = checkbox.dataset.id;
+  const currentIndex = parseInt(checkbox.dataset.index);
+
+  // Handle shift+click for range selection
+  if (e.shiftKey && lastCheckedIndex !== null) {
+    const start = Math.min(lastCheckedIndex, currentIndex);
+    const end = Math.max(lastCheckedIndex, currentIndex);
+
+    // Get all checkboxes and select/deselect the range
+    const checkboxes = document.querySelectorAll('.conversation-checkbox');
+    const isChecking = checkbox.checked;
+
+    for (let i = start; i <= end; i++) {
+      const cb = checkboxes[i];
+      if (cb) {
+        cb.checked = isChecking;
+        const id = cb.dataset.id;
+        if (isChecking) {
+          selectedConversations.add(id);
+        } else {
+          selectedConversations.delete(id);
+        }
+      }
+    }
+  } else {
+    // Normal single checkbox toggle
+    if (checkbox.checked) {
+      selectedConversations.add(conversationId);
+    } else {
+      selectedConversations.delete(conversationId);
+    }
+  }
+
+  // Update last checked index
+  lastCheckedIndex = currentIndex;
+
+  updateExportButtonText();
+  updateSelectAllCheckbox();
+}
+
+// Handle select all checkbox
+function handleSelectAll(e) {
+  const checkboxes = document.querySelectorAll('.conversation-checkbox');
+
+  if (e.target.checked) {
+    // Select all visible conversations
+    checkboxes.forEach(checkbox => {
+      checkbox.checked = true;
+      selectedConversations.add(checkbox.dataset.id);
+    });
+  } else {
+    // Deselect all
+    checkboxes.forEach(checkbox => {
+      checkbox.checked = false;
+    });
+    selectedConversations.clear();
+  }
+
+  // Reset last checked index when using select all
+  lastCheckedIndex = null;
+
+  updateExportButtonText();
+}
+
+// Update select all checkbox state
+function updateSelectAllCheckbox() {
+  const selectAllCheckbox = document.getElementById('selectAll');
+  if (!selectAllCheckbox) return;
+
+  // Show header checkbox as checked when any conversations are selected
+  selectAllCheckbox.checked = selectedConversations.size > 0;
+}
+
+// Update export button text based on selection
+function updateExportButtonText() {
+  const exportBtn = document.getElementById('exportAllBtn');
+  if (!exportBtn) return;
+
+  if (selectedConversations.size > 0) {
+    exportBtn.textContent = `Export Selected (${selectedConversations.size})`;
+  } else {
+    exportBtn.textContent = 'Export All';
+  }
+}
+
+// Update statistics
+function updateStats() {
+  const stats = document.getElementById('stats');
+  const newCount = allConversations.filter(c => isNewOrUpdated(c)).length;
+  stats.textContent = `Showing ${filteredConversations.length} of ${allConversations.length} conversations (${newCount} new/updated)`;
+}
+
+// Auto-select new/updated conversations
+function autoSelectNewUpdated() {
+  selectedConversations.clear();
+  filteredConversations.forEach(conv => {
+    if (isNewOrUpdated(conv)) {
+      selectedConversations.add(conv.uuid);
+    }
+  });
+  displayConversations();
+  updateExportButtonText();
+}
+
+// Export single conversation
+async function exportConversation(conversationId, conversationName) {
+  const format = document.getElementById('exportFormat').value;
+  const includeChats = document.getElementById('includeChats').checked;
+  const includeThinking = document.getElementById('includeThinking').checked;
+  const includeMetadata = document.getElementById('includeMetadata').checked;
+  const includeArtifacts = document.getElementById('includeArtifacts').checked;
+  const extractArtifacts = document.getElementById('extractArtifacts').checked;
+  const artifactFormat = document.getElementById('artifactFormat').value;
+  const flattenArtifacts = document.getElementById('flattenArtifacts').checked;
+
+  // Tracked at function scope so the unified post-save toast can mention it
+  let artifactCount = 0;
+
+  try {
+    showToast(`Exporting ${conversationName}...`);
+
+    const response = await fetch(
+      `https://claude.ai/api/organizations/${orgId}/chat_conversations/${conversationId}?tree=True&rendering_mode=messages&render_all_tools=true`,
+      {
+        credentials: 'include',
+        headers: {
+          'Accept': 'application/json',
+        }
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch conversation: ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    // Infer model if null
+    data.model = inferModel(data);
+
+    // Check if we need to extract artifacts to separate files
+    if (extractArtifacts || flattenArtifacts) {
+      const artifactFiles = extractArtifactFiles(data, artifactFormat);
+
+      if (artifactFiles.length > 0) {
+        artifactCount = artifactFiles.length;
+        // Create a ZIP with artifacts (and optionally conversation)
+        const zip = new JSZip();
+
+        // Add conversation file only if includeChats is true
+        if (includeChats !== false) {
+          let conversationContent, conversationFilename;
+          switch (format) {
+            case 'markdown':
+              conversationContent = convertToMarkdown(data, includeMetadata, conversationId, includeArtifacts, includeThinking);
+              conversationFilename = `${conversationName || conversationId}.md`;
+              break;
+            case 'text':
+              conversationContent = convertToText(data, includeMetadata, includeArtifacts, includeThinking);
+              conversationFilename = `${conversationName || conversationId}.txt`;
+              break;
+            default:
+              conversationContent = JSON.stringify(data, null, 2);
+              conversationFilename = `${conversationName || conversationId}.json`;
+          }
+
+          // Flat export: add to Chats folder
+          if (flattenArtifacts && !extractArtifacts) {
+            const chatsFolder = zip.folder('Chats');
+            chatsFolder.file(conversationFilename, conversationContent);
+          } else {
+            // Nested or no artifact extraction: add to root
+            zip.file(conversationFilename, conversationContent);
+          }
+        }
+
+        // Add artifact files
+        // Nested: create artifacts subfolder
+        if (extractArtifacts) {
+          const artifactsFolder = includeChats !== false ? zip.folder('artifacts') : zip;
+          for (const artifact of artifactFiles) {
+            artifactsFolder.file(artifact.filename, artifact.content);
+          }
+        }
+
+        // Flat: add artifacts with conversation name prefix to Artifacts folder
+        if (flattenArtifacts && !extractArtifacts) {
+          const artifactsFolder = zip.folder('Artifacts');
+          for (const artifact of artifactFiles) {
+            const filename = `${conversationName}_${artifact.filename}`;
+            artifactsFolder.file(filename, artifact.content);
+          }
+        }
+
+        // Generate and download ZIP
+        const blob = await zip.generateAsync({ type: 'blob' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${conversationName || conversationId}.zip`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        // Toast handled below after timestamp save
+      } else {
+        // No artifacts found, export normally
+        let content, filename, type;
+        switch (format) {
+          case 'markdown':
+            content = convertToMarkdown(data, includeMetadata, conversationId, includeArtifacts, includeThinking);
+            filename = `${conversationName || conversationId}.md`;
+            type = 'text/markdown';
+            break;
+          case 'text':
+            content = convertToText(data, includeMetadata, includeArtifacts, includeThinking);
+            filename = `${conversationName || conversationId}.txt`;
+            type = 'text/plain';
+            break;
+          default:
+            content = JSON.stringify(data, null, 2);
+            filename = `${conversationName || conversationId}.json`;
+            type = 'application/json';
+        }
+        downloadFile(content, filename, type);
+      }
+    } else {
+      // Normal export without artifact extraction
+      if (includeChats === false) {
+        // If chats are disabled and we're not extracting artifacts, there's nothing to export
+        showToast('Nothing to export. Enable "Chats" or "Artifacts nested".', true);
+        return;
+      } else {
+        let content, filename, type;
+        switch (format) {
+          case 'markdown':
+            content = convertToMarkdown(data, includeMetadata, conversationId, includeArtifacts, includeThinking);
+            filename = `${conversationName || conversationId}.md`;
+            type = 'text/markdown';
+            break;
+          case 'text':
+            content = convertToText(data, includeMetadata, includeArtifacts, includeThinking);
+            filename = `${conversationName || conversationId}.txt`;
+            type = 'text/plain';
+            break;
+          default:
+            content = JSON.stringify(data, null, 2);
+            filename = `${conversationName || conversationId}.json`;
+            type = 'application/json';
+        }
+        downloadFile(content, filename, type);
+      }
+    }
+
+    // Record export timestamp and refresh display
+    await saveExportTimestamp(conversationId);
+    showToast(artifactCount > 0
+      ? `Exported: ${conversationName} with ${artifactCount} artifact(s)`
+      : `Exported: ${conversationName}`);
+    displayConversations();
+    updateStats();
+
+  } catch (error) {
+    console.error('Export error:', error);
+    showToast(`Failed to export: ${error.message}`, true);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Project Export — bundle a Claude.ai project into a Claude Code-ready workspace
+// ─────────────────────────────────────────────────────────────────────────
+
+function sanitizeFilename(name) {
+  return (name || 'untitled').replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').trim() || 'untitled';
+}
+
+function ensureExtension(filename, defaultExt = '.md') {
+  if (!filename) return `untitled${defaultExt}`;
+  return /\.[a-z0-9]{1,8}$/i.test(filename) ? filename : `${filename}${defaultExt}`;
+}
+
+// Append _2, _3 ... if filename already used; mutates the used set
+function dedupeName(name, usedSet) {
+  if (!usedSet.has(name)) { usedSet.add(name); return name; }
+  const dot = name.lastIndexOf('.');
+  const base = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : '';
+  let i = 2;
+  while (usedSet.has(`${base}_${i}${ext}`)) i++;
+  const out = `${base}_${i}${ext}`;
+  usedSet.add(out);
+  return out;
+}
+
+async function fetchProjectDetail(projectId) {
+  const res = await fetch(`https://claude.ai/api/organizations/${orgId}/projects/${projectId}`, {
+    credentials: 'include', headers: { 'Accept': 'application/json' },
+  });
+  if (!res.ok) throw new Error(`Project detail fetch failed: HTTP ${res.status}`);
+  return res.json();
+}
+
+async function fetchProjectDocs(projectId) {
+  const res = await fetch(`https://claude.ai/api/organizations/${orgId}/projects/${projectId}/docs`, {
+    credentials: 'include', headers: { 'Accept': 'application/json' },
+  });
+  if (!res.ok) return [];
+  return res.json();
+}
+
+async function fetchProjectFiles(projectId) {
+  const res = await fetch(`https://claude.ai/api/organizations/${orgId}/projects/${projectId}/files`, {
+    credentials: 'include', headers: { 'Accept': 'application/json' },
+  });
+  if (!res.ok) return [];
+  return res.json();
+}
+
+function buildClaudeMd(project, chats, knowledgeEntries, manifestFilename, artifactEntries) {
+  const lines = [];
+  lines.push(`# Project Context: ${project.name || 'Untitled'}`);
+  lines.push('');
+  lines.push(`Exported from Claude.ai on ${new Date().toLocaleString()}.`);
+  lines.push('');
+
+  const promptTpl = (project.prompt_template || '').trim();
+  if (promptTpl) {
+    lines.push('## Custom Instructions');
+    lines.push('');
+    lines.push(promptTpl);
+    lines.push('');
+  }
+
+  const desc = (project.description || '').trim();
+  if (desc) {
+    lines.push('## Description');
+    lines.push('');
+    lines.push(desc);
+    lines.push('');
+  }
+
+  lines.push('## Conversations');
+  lines.push('');
+  if (chats.length === 0) {
+    lines.push('_No conversations in this project._');
+  } else {
+    lines.push(`See \`@context/chats/\` for ${chats.length} conversation${chats.length === 1 ? '' : 's'} in this project.`);
+  }
+  lines.push('');
+
+  if (knowledgeEntries.length > 0 || manifestFilename) {
+    lines.push('## Knowledge Files');
+    lines.push('');
+    for (const entry of knowledgeEntries) {
+      lines.push(`- @context/knowledge/${entry.savedFilename}`);
+    }
+    if (manifestFilename) {
+      lines.push(`- @context/knowledge/${manifestFilename} _(binary uploads — metadata only; content not exported)_`);
+    }
+    lines.push('');
+  }
+
+  if (artifactEntries.length > 0) {
+    lines.push('## Artifacts');
+    lines.push('');
+    for (const entry of artifactEntries) {
+      lines.push(`- @context/artifacts/${entry.savedFilename}`);
+    }
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+function buildFilesManifest(files) {
+  const lines = [];
+  lines.push('# Project Files (binary uploads)');
+  lines.push('');
+  lines.push('Claude.ai stores these uploads as binary blobs not exposed for direct download via the public API. Only metadata is captured below.');
+  lines.push('');
+  for (const f of files) {
+    const name = f.file_name || f.name || '(unnamed)';
+    const size = f.size_bytes != null ? `${f.size_bytes} bytes` : 'unknown size';
+    const id = f.file_uuid || f.uuid || '';
+    lines.push(`- **${name}** — ${size}${id ? ` — \`${id}\`` : ''}`);
+  }
+  lines.push('');
+  return lines.join('\n');
+}
+
+async function exportProject(projectId, projectName) {
+  const button = document.getElementById('exportProjectBtn');
+  button.disabled = true;
+
+  const progressModal = document.getElementById('progressModal');
+  const progressBar = document.getElementById('progressBar');
+  const progressText = document.getElementById('progressText');
+  const progressStats = document.getElementById('progressStats');
+  progressBar.style.width = '0%';
+  progressStats.textContent = '';
+  progressText.textContent = `Loading project "${projectName}"...`;
+  progressModal.style.display = 'block';
+
+  let cancelled = false;
+  const cancelBtn = document.getElementById('cancelExport');
+  cancelBtn.onclick = () => { cancelled = true; progressModal.style.display = 'none'; showToast('Project export cancelled', true); };
+
+  try {
+    const [project, docs, files] = await Promise.all([
+      fetchProjectDetail(projectId),
+      fetchProjectDocs(projectId),
+      fetchProjectFiles(projectId),
+    ]);
+    if (cancelled) return;
+
+    const projectChats = allConversations.filter(c => {
+      const id = c.project_uuid || c.project_id || c.projectUuid;
+      return id === projectId;
+    });
+
+    const safeProjectName = sanitizeFilename(project.name || projectName);
+    const zip = new JSZip();
+    const root = zip.folder(safeProjectName);
+    const chatsFolder = root.folder('context').folder('chats');
+    const artifactsFolder = root.folder('context').folder('artifacts');
+    const knowledgeFolder = root.folder('context').folder('knowledge');
+
+    // Write knowledge docs (parsed text)
+    const knowledgeEntries = [];
+    const knowledgeUsedNames = new Set();
+    for (const doc of docs) {
+      const baseName = ensureExtension(sanitizeFilename(doc.file_name || doc.uuid || 'doc'), '.md');
+      const savedFilename = dedupeName(baseName, knowledgeUsedNames);
+      knowledgeFolder.file(savedFilename, doc.content || '');
+      knowledgeEntries.push({ savedFilename });
+    }
+
+    // Write binary files manifest (one file, one @-ref)
+    let manifestFilename = null;
+    if (Array.isArray(files) && files.length > 0) {
+      manifestFilename = dedupeName('_files_manifest.md', knowledgeUsedNames);
+      knowledgeFolder.file(manifestFilename, buildFilesManifest(files));
+    }
+
+    // Fetch each chat in batches, convert to markdown, extract artifacts
+    progressText.textContent = `Exporting ${projectChats.length} conversation${projectChats.length === 1 ? '' : 's'}...`;
+    const chatUsedNames = new Set();
+    const chatFolderNames = new Set();
+    const artifactUsedNames = new Set();
+    const artifactEntries = [];
+    const exportedChatIds = [];
+    let processed = 0;
+    const failedChats = [];
+
+    const batchSize = 3;
+    for (let i = 0; i < projectChats.length; i += batchSize) {
+      if (cancelled) return;
+      const batch = projectChats.slice(i, i + batchSize);
+      await Promise.all(batch.map(async (conv) => {
+        try {
+          const res = await fetch(
+            `https://claude.ai/api/organizations/${orgId}/chat_conversations/${conv.uuid}?tree=True&rendering_mode=messages&render_all_tools=true`,
+            { credentials: 'include', headers: { 'Accept': 'application/json' } }
+          );
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
+          data.model = inferModel(data);
+
+          const safeChatBase = sanitizeFilename(conv.name || conv.uuid);
+          const chatFilename = dedupeName(`${safeChatBase}.md`, chatUsedNames);
+          const chatSubfolderName = dedupeName(safeChatBase, chatFolderNames);
+          const chatSubfolder = chatsFolder.folder(chatSubfolderName);
+          chatSubfolder.file(chatFilename, convertToMarkdown(data, true, conv.uuid, false, true));
+
+          const artifacts = extractArtifactFiles(data, 'original');
+          for (const a of artifacts) {
+            const saved = dedupeName(`${safeChatBase}_${a.filename}`, artifactUsedNames);
+            artifactsFolder.file(saved, a.content);
+            artifactEntries.push({ savedFilename: saved });
+          }
+
+          const { files: attFiles, manifest: attManifest } = extractAttachmentFiles(data);
+          const attachmentsFolder = chatSubfolder.folder('attachments');
+          for (const af of attFiles) attachmentsFolder.file(af.filename, af.content);
+          if (attManifest) attachmentsFolder.file('_binary_uploads.md', attManifest);
+          await addConversationFilesToFolder(attachmentsFolder, orgId, data);
+
+          exportedChatIds.push(conv.uuid);
+        } catch (e) {
+          console.error(`Chat ${conv.uuid} failed:`, e);
+          failedChats.push(conv.name || conv.uuid);
+        }
+      }));
+
+      processed += batch.length;
+      progressBar.style.width = `${Math.round((processed / Math.max(projectChats.length, 1)) * 100)}%`;
+      progressStats.textContent = `${processed}/${projectChats.length} processed${failedChats.length ? ` (${failedChats.length} failed)` : ''}`;
+      if (i + batchSize < projectChats.length && !cancelled) {
+        await new Promise(r => setTimeout(r, 200));
+      }
+    }
+
+    if (cancelled) return;
+
+    root.file('CLAUDE.md', buildClaudeMd(project, projectChats, knowledgeEntries, manifestFilename, artifactEntries));
+
+    progressText.textContent = 'Building ZIP...';
+    const blob = await zip.generateAsync(
+      { type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } },
+      (m) => { progressBar.style.width = `${Math.round(m.percent)}%`; }
+    );
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `claude-project-${safeProjectName}-${getLocalDateTimeString()}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    progressModal.style.display = 'none';
+    if (exportedChatIds.length > 0) await saveExportTimestamps(exportedChatIds);
+    displayConversations();
+    updateStats();
+
+    if (failedChats.length > 0) {
+      showToast(`Exported project (${exportedChatIds.length} chats, ${failedChats.length} failed).`);
+    } else {
+      showToast(`Exported project "${project.name || projectName}" — ${exportedChatIds.length} chats, ${knowledgeEntries.length} docs, ${artifactEntries.length} artifacts.`);
+    }
+  } catch (e) {
+    console.error('Project export error:', e);
+    progressModal.style.display = 'none';
+    showToast(`Project export failed: ${e.message}`, true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function populateProjectDropdown() {
+  const dropdown = document.getElementById('projectDropdown');
+  const optionsContainer = document.getElementById('projectOptions');
+  const button = document.getElementById('exportProjectBtn');
+  if (!dropdown || !optionsContainer || !button) return;
+
+  if (!allProjects || allProjects.length === 0) {
+    optionsContainer.innerHTML = '<div class="project-dropdown-empty">No projects found</div>';
+    button.disabled = true;
+    return;
+  }
+
+  const counts = {};
+  for (const conv of allConversations) {
+    const pid = conv.project_uuid || conv.project_id || conv.projectUuid;
+    if (pid) counts[pid] = (counts[pid] || 0) + 1;
+  }
+
+  const sorted = [...allProjects].sort((a, b) => {
+    return (a.name || a.title || '').toLowerCase().localeCompare((b.name || b.title || '').toLowerCase());
+  });
+
+  optionsContainer.innerHTML = sorted.map(p => {
+    const pid = p.uuid || p.id;
+    const pname = p.name || p.title || 'Untitled Project';
+    const count = counts[pid] || 0;
+    return `<div class="project-option" data-project-id="${escapeHtml(pid)}" data-project-name="${escapeHtml(pname)}">
+      ${escapeHtml(pname)}
+      <span class="project-meta">${count} conversation${count === 1 ? '' : 's'}</span>
+    </div>`;
+  }).join('');
+
+  optionsContainer.querySelectorAll('.project-option').forEach(opt => {
+    opt.addEventListener('click', () => {
+      dropdown.classList.remove('open');
+      exportProject(opt.dataset.projectId, opt.dataset.projectName);
+    });
+  });
+
+  button.disabled = false;
+}
+
+function filterProjectOptions(query) {
+  const q = query.toLowerCase().trim();
+  const options = document.querySelectorAll('#projectOptions .project-option');
+  let visible = 0;
+  options.forEach(opt => {
+    const name = (opt.dataset.projectName || '').toLowerCase();
+    const show = !q || name.includes(q);
+    opt.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+  let noResults = document.getElementById('projectNoResults');
+  if (visible === 0 && q) {
+    if (!noResults) {
+      noResults = document.createElement('div');
+      noResults.id = 'projectNoResults';
+      noResults.className = 'project-dropdown-empty';
+      document.getElementById('projectOptions').appendChild(noResults);
+    }
+    noResults.textContent = `No projects match "${query}"`;
+    noResults.style.display = '';
+  } else if (noResults) {
+    noResults.style.display = 'none';
+  }
+}
+
+// Export all filtered conversations
+async function exportAllFiltered() {
+  const format = document.getElementById('exportFormat').value;
+  const includeChats = document.getElementById('includeChats').checked;
+  const includeThinking = document.getElementById('includeThinking').checked;
+  const includeMetadata = document.getElementById('includeMetadata').checked;
+  const includeArtifacts = document.getElementById('includeArtifacts').checked;
+  const extractArtifacts = document.getElementById('extractArtifacts').checked;
+  const artifactFormat = document.getElementById('artifactFormat').value;
+  const flattenArtifacts = document.getElementById('flattenArtifacts').checked;
+
+  const button = document.getElementById('exportAllBtn');
+  button.disabled = true;
+  const originalButtonText = button.textContent;
+  button.textContent = 'Preparing...';
+
+  // Determine which conversations to export
+  let conversationsToExport;
+  if (selectedConversations.size > 0) {
+    // Export ALL selected conversations, even ones currently hidden by the
+    // filter — the checkbox is the user's explicit choice, the filter is just
+    // a view. The "Export Selected (N)" button text already reflects the
+    // full selection count, so users aren't surprised.
+    conversationsToExport = allConversations.filter(conv => selectedConversations.has(conv.uuid));
+  } else {
+    // No explicit selection: export everything currently visible.
+    conversationsToExport = filteredConversations;
+  }
+
+  // Single conversation: delegate to exportConversation so we skip the ZIP
+  // when the output is a single file (artifact-extraction paths still ZIP there)
+  if (conversationsToExport.length === 1) {
+    const conv = conversationsToExport[0];
+    const progressModal = document.getElementById('progressModal');
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
+    const progressStats = document.getElementById('progressStats');
+    progressModal.style.display = 'block';
+    progressText.textContent = `Exporting ${conv.name}...`;
+    progressBar.style.width = '0%';
+    progressStats.textContent = '';
+    try {
+      await exportConversation(conv.uuid, conv.name);
+      progressBar.style.width = '100%';
+    } finally {
+      progressModal.style.display = 'none';
+      button.disabled = false;
+      button.textContent = originalButtonText;
+    }
+    return;
+  }
+
+  // Show progress modal
+  const progressModal = document.getElementById('progressModal');
+  const progressBar = document.getElementById('progressBar');
+  const progressText = document.getElementById('progressText');
+  const progressStats = document.getElementById('progressStats');
+  progressBar.style.width = '0%';
+  progressStats.textContent = '';
+  progressText.textContent = 'Preparing export...';
+  progressModal.style.display = 'block';
+
+  let cancelExport = false;
+  const cancelButton = document.getElementById('cancelExport');
+  cancelButton.onclick = () => {
+    cancelExport = true;
+    progressModal.style.display = 'none';
+    showToast('Export cancelled', true);
+  };
+
+  try {
+    // Create a new ZIP file
+    const zip = new JSZip();
+    const total = conversationsToExport.length;
+    let completed = 0;
+    let failed = 0;
+    let skipped = 0;
+    const failedConversationIds = [];
+
+    progressText.textContent = `Exporting ${total} conversations...`;
+
+    // Process conversations in batches to avoid overwhelming the API
+    const batchSize = 3; // Process 3 at a time
+    for (let i = 0; i < total; i += batchSize) {
+      if (cancelExport) break;
+
+      const batch = conversationsToExport.slice(i, Math.min(i + batchSize, total));
+      const promises = batch.map(async (conv) => {
+        try {
+          const response = await fetch(
+            `https://claude.ai/api/organizations/${orgId}/chat_conversations/${conv.uuid}?tree=True&rendering_mode=messages&render_all_tools=true`,
+            {
+              credentials: 'include',
+              headers: {
+                'Accept': 'application/json',
+              }
+            }
+          );
+          
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+          
+          const data = await response.json();
+
+          // Infer model if null
+          data.model = inferModel(data);
+
+          // Extract artifacts first to check if this conversation should be included
+          const artifactFiles = extractArtifactFiles(data, artifactFormat);
+
+          // If chats are disabled and no artifacts, skip this conversation
+          if (includeChats === false && artifactFiles.length === 0) {
+            console.log(`Skipping ${conv.name} - no artifacts found (chats disabled)`);
+            skipped++;
+            return; // Skip this conversation in the promise
+          }
+
+          // Generate filename and content based on format
+          let content, filename;
+          const safeName = conv.name.replace(/[<>:"/\\|?*]/g, '_'); // Remove invalid filename characters
+
+          switch (format) {
+            case 'markdown':
+              content = convertToMarkdown(data, includeMetadata, conv.uuid, includeArtifacts, includeThinking);
+              filename = `${safeName}.md`;
+              break;
+            case 'text':
+              content = convertToText(data, includeMetadata, includeArtifacts, includeThinking);
+              filename = `${safeName}.txt`;
+              break;
+            default: // json
+              content = JSON.stringify(data, null, 2);
+              filename = `${safeName}.json`;
+          }
+
+          // Flat export: use Chats and Artifacts top-level folders
+          if (flattenArtifacts && !extractArtifacts) {
+            // Add chat file to Chats folder if chats are enabled
+            if (includeChats !== false) {
+              const chatsFolder = zip.folder('Chats');
+              chatsFolder.file(filename, content);
+            }
+
+            // Add artifacts to Artifacts folder with conversation name prefix
+            if (artifactFiles.length > 0) {
+              const artifactsFolder = zip.folder('Artifacts');
+              for (const artifact of artifactFiles) {
+                const artifactFilename = `${safeName}_${artifact.filename}`;
+                artifactsFolder.file(artifactFilename, artifact.content);
+              }
+            }
+
+            // Add uploaded files to Attachments folder with conversation name prefix
+            const { files: attFiles, manifest: attManifest } = extractAttachmentFiles(data);
+            const attachmentsFolder = zip.folder('Attachments');
+            for (const af of attFiles) attachmentsFolder.file(`${safeName}_${af.filename}`, af.content);
+            if (attManifest) attachmentsFolder.file(`${safeName}_binary_uploads.md`, attManifest);
+            await addConversationFilesToFolder(attachmentsFolder, orgId, data, `${safeName}_`);
+          }
+          // Nested export: create per-conversation folders with artifacts subfolder
+          else if (extractArtifacts) {
+            const convFolder = zip.folder(safeName);
+
+            // Add conversation file only if includeChats is true
+            if (includeChats !== false) {
+              convFolder.file(filename, content);
+            }
+
+            // Add artifact files in nested artifacts subfolder
+            if (artifactFiles.length > 0) {
+              const artifactsFolder = includeChats !== false ? convFolder.folder('artifacts') : convFolder;
+              for (const artifact of artifactFiles) {
+                artifactsFolder.file(artifact.filename, artifact.content);
+              }
+            }
+
+            // Add pasted text attachments and uploaded files
+            const { files: attFiles, manifest: attManifest } = extractAttachmentFiles(data);
+            const attachmentsFolder = convFolder.folder('attachments');
+            for (const af of attFiles) attachmentsFolder.file(af.filename, af.content);
+            if (attManifest) attachmentsFolder.file('_binary_uploads.md', attManifest);
+            await addConversationFilesToFolder(attachmentsFolder, orgId, data);
+          } else {
+            // No artifact extraction - per-chat subfolder
+            const chatFolder = zip.folder(safeName);
+            if (includeChats !== false) {
+              chatFolder.file(filename, content);
+            }
+
+            // Add pasted text attachments and uploaded files
+            const { files: attFiles, manifest: attManifest } = extractAttachmentFiles(data);
+            const attachmentsFolder = chatFolder.folder('attachments');
+            for (const af of attFiles) attachmentsFolder.file(af.filename, af.content);
+            if (attManifest) attachmentsFolder.file('_binary_uploads.md', attManifest);
+            await addConversationFilesToFolder(attachmentsFolder, orgId, data);
+          }
+
+          completed++;
+          
+        } catch (error) {
+          console.error(`Failed to export ${conv.name}:`, error);
+          failed++;
+          failedConversationIds.push(conv.uuid);
+        }
+      });
+      
+      // Wait for batch to complete
+      await Promise.all(promises);
+      
+      // Update progress
+      const progress = Math.round((completed + failed + skipped) / total * 100);
+      progressBar.style.width = `${progress}%`;
+      progressStats.textContent = `${completed} succeeded, ${failed} failed out of ${total}`;
+      
+      // Small delay between batches
+      if (i + batchSize < total && !cancelExport) {
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+    }
+    
+    if (cancelExport) return;
+
+    // Generate and download the ZIP file
+    progressText.textContent = 'Creating ZIP file...';
+    const blob = await zip.generateAsync({
+      type: 'blob',
+      compression: 'DEFLATE',
+      compressionOptions: {
+        level: 6 // Medium compression
+      }
+    }, (metadata) => {
+      // Update progress during ZIP creation
+      const zipProgress = Math.round(metadata.percent);
+      progressBar.style.width = `${zipProgress}%`;
+    });
+    
+    // Download the ZIP file
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    // Format: claude-artifacts-20251031-143045.zip or claude-exports-20251031-143045.zip
+    const datetime = getLocalDateTimeString();
+    // Use 'claude-artifacts' when ONLY flat artifacts are exported
+    const prefix = (flattenArtifacts && !extractArtifacts && includeChats === false) ? 'claude-artifacts' : 'claude-exports';
+    a.download = `${prefix}-${datetime}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    progressModal.style.display = 'none';
+
+    // Record export timestamps for successfully exported conversations
+    const exportedIds = conversationsToExport
+      .filter(conv => !failedConversationIds.includes(conv.uuid))
+      .map(conv => conv.uuid);
+    await saveExportTimestamps(exportedIds);
+    displayConversations();
+    updateStats();
+
+    if (failed > 0) {
+      showToast(`Exported ${completed} of ${total} conversations (${failed} failed).`);
+    } else {
+      showToast(`Successfully exported all ${completed} conversations!`);
+    }
+    
+  } catch (error) {
+    console.error('Export error:', error);
+    progressModal.style.display = 'none';
+    showToast(`Export failed: ${error.message}`, true);
+  } finally {
+    button.disabled = false;
+    button.textContent = originalButtonText;
+  }
+}
+
+// Conversion functions are now imported from utils.js
+// Functions available: getCurrentBranch, convertToMarkdown, convertToText, downloadFile
+
+// Show error message
+function showError(message) {
+  const tableContent = document.getElementById('tableContent');
+  const errorDiv = document.createElement('div');
+  errorDiv.className = 'error';
+  errorDiv.textContent = message;
+  tableContent.innerHTML = '';
+  tableContent.appendChild(errorDiv);
+}
+
+// Show toast notification
+function showToast(message, isError = false) {
+  const toast = document.getElementById('toast');
+  toast.textContent = message;
+  toast.style.background = isError ? '#d32f2f' : '#333';
+  toast.classList.add('show');
+  
+  setTimeout(() => {
+    toast.classList.remove('show');
+  }, 3000);
+}
+
+// Setup event listeners
+function setupEventListeners() {
+  // Handle checkbox dependencies
+  const includeChatsCheckbox = document.getElementById('includeChats');
+  const includeThinkingCheckbox = document.getElementById('includeThinking');
+  const includeMetadataCheckbox = document.getElementById('includeMetadata');
+  const includeArtifactsCheckbox = document.getElementById('includeArtifacts');
+
+  function updateCheckboxStates() {
+    const chatsEnabled = includeChatsCheckbox.checked;
+
+    // Disable thinking, metadata and inline artifacts when chats is unchecked
+    includeThinkingCheckbox.disabled = !chatsEnabled;
+    includeMetadataCheckbox.disabled = !chatsEnabled;
+    includeArtifactsCheckbox.disabled = !chatsEnabled;
+
+    // Optionally uncheck them when disabled
+    if (!chatsEnabled) {
+      includeThinkingCheckbox.checked = false;
+      includeMetadataCheckbox.checked = false;
+      includeArtifactsCheckbox.checked = false;
+    }
+  }
+
+  includeChatsCheckbox.addEventListener('change', updateCheckboxStates);
+  updateCheckboxStates(); // Initialize on load
+
+  // Settings dropdown
+  const settingsBtn = document.getElementById('settingsBtn');
+  const settingsDropdown = document.getElementById('settingsDropdown');
+
+  settingsBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    settingsDropdown.classList.toggle('open');
+    // Update org ID display when opening
+    if (settingsDropdown.classList.contains('open')) {
+      const orgDisplay = document.getElementById('orgIdDisplay');
+      if (orgId) {
+        orgDisplay.textContent = orgId.substring(0, 8) + '...';
+        orgDisplay.title = orgId;
+      } else {
+        orgDisplay.textContent = 'Not set';
+      }
+      // Update theme label
+      const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+      document.getElementById('themeLabel').textContent = theme === 'dark' ? 'Dark' : 'Light';
+    }
+  });
+
+  // Close dropdown when clicking outside
+  document.addEventListener('click', () => {
+    settingsDropdown.classList.remove('open');
+  });
+  settingsDropdown.addEventListener('click', (e) => {
+    e.stopPropagation();
+  });
+
+  // Theme toggle
+  document.getElementById('themeToggle').addEventListener('click', () => {
+    toggleTheme();
+    const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+    document.getElementById('themeLabel').textContent = theme === 'dark' ? 'Dark' : 'Light';
+  });
+
+  // Click org ID row to copy full ID to clipboard
+  document.getElementById('settingsOrgId').addEventListener('click', async () => {
+    if (!orgId) {
+      showToast('No org ID set', true);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(orgId);
+      showToast('Org ID copied to clipboard');
+    } catch (e) {
+      showToast('Failed to copy org ID', true);
+    }
+    settingsDropdown.classList.remove('open');
+  });
+
+  // Edit org ID — open options in the same tab so the back button returns here
+  document.getElementById('editOrgId').addEventListener('click', () => {
+    window.location.href = chrome.runtime.getURL('options.html');
+  });
+
+  // Advanced Options — open options in the same tab so the back button returns here
+  document.getElementById('advancedOptions').addEventListener('click', () => {
+    window.location.href = chrome.runtime.getURL('options.html');
+  });
+
+  // Mark all as exported
+  document.getElementById('markAllExported').addEventListener('click', async () => {
+    const ids = allConversations.map(c => c.uuid);
+    await saveExportTimestamps(ids);
+    displayConversations();
+    updateStats();
+    settingsDropdown.classList.remove('open');
+    showToast(`Marked ${ids.length} conversations as exported`);
+  });
+
+  // Mark all as new
+  document.getElementById('markAllNew').addEventListener('click', async () => {
+    exportTimestamps = {};
+    await new Promise(resolve => chrome.storage.local.set({ exportTimestamps: {} }, resolve));
+    selectedConversations.clear();
+    autoSelectNewUpdated();
+    updateStats();
+    settingsDropdown.classList.remove('open');
+    showToast('All conversations marked as new');
+  });
+
+  // Backup / Restore Database submenu — shared logic lives in utils.js
+  document.getElementById('backupData').addEventListener('click', () => {
+    backupExtensionData((success, message) => showToast(message, !success));
+    settingsDropdown.classList.remove('open');
+  });
+
+  // Import flow: mode-choice modal → file picker → import.
+  // pendingImportMode bridges the async file-picker boundary.
+  let pendingImportMode = null;
+
+  document.getElementById('restoreData').addEventListener('click', () => {
+    settingsDropdown.classList.remove('open');
+    showImportModeModal((mode) => {
+      if (mode === null) return; // user cancelled
+      pendingImportMode = mode;
+      document.getElementById('restoreFileBrowse').click();
+    });
+  });
+
+  document.getElementById('restoreFileBrowse').addEventListener('change', (event) => {
+    const file = event.target.files[0];
+    event.target.value = ''; // allow re-selecting the same file later
+    const mode = pendingImportMode;
+    pendingImportMode = null; // consume; never reuse a stale mode
+    if (!file || !mode) return;
+    importBackup(file, mode, (success, message) => showToast(message, !success));
+  });
+
+  // Search input
+  const searchInput = document.getElementById('searchInput');
+  searchInput.addEventListener('input', (e) => {
+    const searchBox = document.getElementById('searchBox');
+    if (e.target.value) {
+      searchBox.classList.add('has-text');
+    } else {
+      searchBox.classList.remove('has-text');
+    }
+    applyFiltersAndSort();
+  });
+  
+  // Clear search
+  document.getElementById('clearSearch').addEventListener('click', () => {
+    document.getElementById('searchInput').value = '';
+    document.getElementById('searchBox').classList.remove('has-text');
+    applyFiltersAndSort();
+  });
+
+  // Filter dropdown
+  const filterBtn = document.getElementById('filterBtn');
+  const filterDropdown = document.getElementById('filterDropdown');
+
+  filterBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    filterDropdown.classList.toggle('open');
+  });
+
+  document.addEventListener('click', () => {
+    filterDropdown.classList.remove('open');
+  });
+  filterDropdown.addEventListener('click', (e) => {
+    e.stopPropagation();
+  });
+
+  document.querySelectorAll('.filter-option').forEach(option => {
+    option.addEventListener('click', () => {
+      statusFilter = option.dataset.value;
+      // Update selected state
+      document.querySelectorAll('.filter-option').forEach(o => o.classList.remove('selected'));
+      option.classList.add('selected');
+      // Search bar placeholder reflects the active scope
+      document.getElementById('searchInput').placeholder = statusFilter === 'projects'
+        ? 'Search projects by name...'
+        : 'Search conversations by name...';
+      // Update button state
+      filterBtn.classList.toggle('active', statusFilter !== 'all');
+      filterDropdown.classList.remove('open');
+      applyFiltersAndSort();
+    });
+  });
+
+  // Set initial selected state
+  document.querySelector('.filter-option[data-value="all"]').classList.add('selected');
+
+  // Export all button
+  document.getElementById('exportAllBtn').addEventListener('click', exportAllFiltered);
+
+  // Export Project dropdown
+  const exportProjectBtn = document.getElementById('exportProjectBtn');
+  const projectDropdown = document.getElementById('projectDropdown');
+  if (exportProjectBtn && projectDropdown) {
+    exportProjectBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (exportProjectBtn.disabled) return;
+      populateProjectDropdown();
+      projectDropdown.classList.toggle('open');
+      if (projectDropdown.classList.contains('open')) {
+        const si = document.getElementById('projectSearchInput');
+        if (si) { si.value = ''; si.focus(); }
+        filterProjectOptions('');
+      }
+    });
+    document.addEventListener('click', () => {
+      projectDropdown.classList.remove('open');
+      const si = document.getElementById('projectSearchInput');
+      if (si) si.value = '';
+      filterProjectOptions('');
+    });
+    projectDropdown.addEventListener('click', (e) => e.stopPropagation());
+
+    const projectSearchInput = document.getElementById('projectSearchInput');
+    if (projectSearchInput) {
+      projectSearchInput.addEventListener('input', () => filterProjectOptions(projectSearchInput.value));
+      projectSearchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          projectDropdown.classList.remove('open');
+          projectSearchInput.value = '';
+          filterProjectOptions('');
+        } else if (e.key === 'Enter') {
+          const visible = [...document.querySelectorAll('#projectOptions .project-option')]
+            .filter(o => o.style.display !== 'none');
+          if (visible.length === 1) visible[0].click();
+        }
+      });
+    }
+  }
+
+  // Populate dropdown once projects are loaded (enables button if projects exist)
+  populateProjectDropdown();
+}
