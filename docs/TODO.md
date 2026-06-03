@@ -157,6 +157,15 @@
 
 ## Completed ✅
 
+- **Continue from Here** (v1.2.3)
+  - "Continue from here ↗" button injected at the bottom of each Claude response (`[data-testid="ai-turn"]` → fallback `[data-testid="ai-turn-inner"]`)
+  - Click → fetches full conversation, walks branch to N-th Claude message, sets `current_leaf_message_uuid` to that message's UUID, runs `convertToMarkdown()` (with artifacts/thinking off), copies result to clipboard
+  - Index determined at click time by `allBtns.indexOf(btn)` to handle DOM re-renders
+  - MutationObserver on body (debounced 300 ms) re-injects buttons as new messages appear
+  - Selector cached in `_cfhSel`; resets automatically when selector yields no matches (e.g. after navigation)
+  - Clipboard: `navigator.clipboard.writeText()` with `execCommand('copy')` fallback
+  - Toast reuses `showCtToast()` from keyboard shortcuts section
+
 - **Keyboard shortcuts** (v1.2.2)
   - `Alt+E`: quick export current conversation as Markdown; on-page toast shows result
   - `Alt+B`: open Browse page in a new tab

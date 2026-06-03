@@ -1,3 +1,24 @@
+/* === Continue from Here button ===
+   Injected at the bottom of each Claude response container. */
+.ct-cfh-wrap {
+  display: flex;
+  padding: 8px 0 2px;
+}
+.ct-cfh-btn {
+  font-size: 11.5px; font-weight: 500; font-family: system-ui, sans-serif;
+  color: currentColor; opacity: 0.38;
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: 7px;
+  padding: 4px 9px;
+  cursor: pointer;
+  transition: opacity 0.15s, background 0.15s;
+  display: inline-flex; align-items: center; gap: 3px;
+  user-select: none; line-height: 1.4;
+}
+.ct-cfh-btn:hover { opacity: 0.72; background: rgba(128,128,128,0.1); }
+.ct-cfh-btn:active { opacity: 0.9; }
+
 /* === Full-Width Mode ===
    Applied when body has data-ct-wide attribute (set by content.js).
    Overrides claude.ai's max-width constraints on the conversation and input areas.

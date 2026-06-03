@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.2.3] - 2026-06-03
+
+### Features
+- **Continue from Here** — a "Continue from here ↗" button appears at the bottom of each Claude response. Clicking it fetches the conversation from the API, truncates to that message, converts to Markdown, and copies to clipboard. A toast shows the message count and prompts pasting into a new conversation. Works via `getCurrentBranch()` + leaf UUID swap so the existing `convertToMarkdown()` function handles the truncation. DOM injection uses `MutationObserver` with debouncing; selector auto-detected and cached per page load.
+
 ## [1.2.2] - 2026-06-03
 
 ### Features

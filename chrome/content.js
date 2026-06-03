@@ -839,6 +839,124 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
 });
 
+// === Continue from Here ===
+
+// Clipboard helper — falls back to execCommand if Clipboard API is unavailable.
+async function copyToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    const el = document.createElement('textarea');
+    el.value = text;
+    Object.assign(el.style, { position: 'fixed', left: '-9999px', top: '-9999px' });
+    document.body.appendChild(el);
+    el.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(el);
+    return ok;
+  }
+}
+
+// Fetch conversation + slice to the N-th Claude response, copy to clipboard.
+async function handleContinueFromHere(claudeMsgIdx) {
+  const conversationId = location.pathname.match(/\/chat\/([^/?]+)/)?.[1];
+  if (!conversationId) { showCtToast('No conversation open'); return; }
+
+  showCtToast('Fetching conversation…');
+  try {
+    const orgResp = await fetch('https://claude.ai/api/organizations', {
+      credentials: 'include', headers: { Accept: 'application/json' }
+    });
+    if (!orgResp.ok) throw new Error('Not authenticated — make sure you are logged in to claude.ai');
+    const orgs = await orgResp.json();
+    const org = orgs.find(o => Array.isArray(o.capabilities) && o.capabilities.includes('chat')) || orgs[0];
+    if (!org?.uuid) throw new Error('Could not detect org ID');
+
+    const data = await fetchConversation(org.uuid, conversationId);
+    data.model = inferModel(data);
+
+    // Walk the current branch and find the N-th Claude response (0-based)
+    const branch = getCurrentBranch(data);
+    let claudeCount = -1;
+    let cutIdx = -1;
+    for (let i = 0; i < branch.length; i++) {
+      if (branch[i].sender === 'claude') {
+        claudeCount++;
+        if (claudeCount === claudeMsgIdx) { cutIdx = i; break; }
+      }
+    }
+
+    if (cutIdx === -1) {
+      showCtToast('Message not found — the page may be out of sync, try scrolling up first');
+      return;
+    }
+
+    // Build conversation truncated at the cut point by changing the leaf UUID.
+    // convertToMarkdown calls getCurrentBranch internally, which traces back from this UUID.
+    const truncData = { ...data, current_leaf_message_uuid: branch[cutIdx].uuid };
+    const content = convertToMarkdown(truncData, false, conversationId, false, false);
+    const ok = await copyToClipboard(content);
+
+    if (ok) {
+      const msgCount = cutIdx + 1;
+      showCtToast(`Context copied (${msgCount} message${msgCount !== 1 ? 's' : ''}) — paste into a new conversation`);
+    } else {
+      showCtToast('Could not copy — check browser clipboard permissions');
+    }
+  } catch (err) {
+    showCtToast('Failed: ' + err.message);
+  }
+}
+
+// Injects "Continue from here" buttons into unprocessed Claude response containers.
+// Tries selectors in priority order; once one works, caches it.
+// The cache resets automatically when the matched selector disappears from the DOM.
+let _cfhSel = null;
+let _cfhDebounce = null;
+
+function injectCfhButtons() {
+  // Reset cached selector if it no longer matches anything (e.g. after navigation)
+  if (_cfhSel && !document.querySelector(_cfhSel)) _cfhSel = null;
+
+  if (!_cfhSel) {
+    for (const sel of ['[data-testid="ai-turn"]', '[data-testid="ai-turn-inner"]']) {
+      if (document.querySelector(sel)) { _cfhSel = sel; break; }
+    }
+  }
+  if (!_cfhSel) return;
+
+  document.querySelectorAll(_cfhSel + ':not([data-ct-cfh])').forEach((el) => {
+    el.setAttribute('data-ct-cfh', '1');
+
+    const wrap = document.createElement('div');
+    wrap.className = 'ct-cfh-wrap';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'ct-cfh-btn';
+    btn.textContent = 'Continue from here ↗';
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      // Determine index by position among all injected buttons at click time
+      const allBtns = [...document.querySelectorAll('.ct-cfh-btn')];
+      handleContinueFromHere(allBtns.indexOf(btn));
+    });
+    wrap.appendChild(btn);
+    el.appendChild(wrap);
+  });
+}
+
+// Start injection and observe the DOM for new messages.
+(function initContinueFromHere() {
+  injectCfhButtons();
+
+  const observer = new MutationObserver(() => {
+    clearTimeout(_cfhDebounce);
+    _cfhDebounce = setTimeout(injectCfhButtons, 300);
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+})();
+
 // === Full-Width Mode ===
 // Reads wideMode from storage and toggles data-ct-wide on document.body.
 // CSS in content.css removes claude.ai's max-width constraints when this attribute is present.
