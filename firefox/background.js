@@ -8,8 +8,12 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.tabs.query({ url: 'https://claude.ai/*' }, (tabs) => {
     tabs.forEach(tab => {
       const files = ['jszip.min.js', 'utils.js', 'content.js', 'vendor/o200k_base.js', 'counter/constants.js', 'counter/bridge-client.js', 'counter/tokens.js', 'counter/ui.js', 'counter/main.js'];
-      // Inject sequentially so each file's globals are available before the next loads
-      files.reduce((promise, file) => {
+      // Clear injection guards first so updated scripts replace stale versions, then inject sequentially
+      new Promise(resolve => {
+        chrome.tabs.executeScript(tab.id, {
+          code: 'window.claudeExporterContentScriptLoaded = false; if (window.ClaudeCounter) window.ClaudeCounter.__started = false;'
+        }, () => resolve());
+      }).then(() => files.reduce((promise, file) => {
         return promise.then(() => new Promise(resolve => {
           chrome.tabs.executeScript(tab.id, { file }, () => {
             if (chrome.runtime.lastError) {
@@ -18,7 +22,7 @@ chrome.runtime.onInstalled.addListener(() => {
             resolve();
           });
         }));
-      }, Promise.resolve());
+      }, Promise.resolve()));
     });
   });
 });

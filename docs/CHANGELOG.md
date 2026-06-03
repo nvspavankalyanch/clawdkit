@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.2.8] - 2026-06-03
+
+### Fixes
+- **Stale content script after update** — background.js now clears the injection guard (`claudeExporterContentScriptLoaded` + `ClaudeCounter.__started`) before re-injecting on install/update, so already-open claude.ai tabs get the latest code instead of silently keeping the old version. This was the root cause of "PDF exports as JSON" — the old content.js had no PDF handler.
+
 ## [1.2.7] - 2026-06-03
 
 ### Fixes
