@@ -320,6 +320,26 @@
         </div>
       </div>
 
+      <!-- Export -->
+      <div class="section">
+        <div class="sec-head">
+          <span class="sec-title">Export</span>
+          <span class="sec-desc">Options for exported files.</span>
+        </div>
+        <div class="panel">
+          <div class="row">
+            <div class="row-l">
+              <div class="row-name">Obsidian filename template</div>
+              <div class="row-help">Tokens: <code>{{date}}</code> (YYYY-MM-DD), <code>{{title}}</code> (conversation name). Default: <code>{{date}}-{{title}}</code></div>
+            </div>
+            <div class="row-r">
+              <input type="text" id="obsidianFilenameTemplate" placeholder="{{date}}-{{title}}" style="width:200px">
+            </div>
+          </div>
+          <div id="exportSettingsStatus" class="status" style="margin: 0 22px 16px;"></div>
+        </div>
+      </div>
+
       <!-- Model Display -->
       <div class="section">
         <div class="sec-head">

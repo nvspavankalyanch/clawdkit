@@ -119,6 +119,21 @@ document.getElementById('timeFormatSelect').addEventListener('change', (e) => {
   });
 });
 
+// Obsidian filename template
+function loadObsidianFilenamePref() {
+  chrome.storage.local.get(['obsidianFilenameTemplate'], (result) => {
+    document.getElementById('obsidianFilenameTemplate').value = result.obsidianFilenameTemplate || '';
+  });
+}
+loadObsidianFilenamePref();
+
+document.getElementById('obsidianFilenameTemplate').addEventListener('change', (e) => {
+  chrome.storage.local.set({ obsidianFilenameTemplate: e.target.value.trim() }, () => {
+    showStatus('exportSettingsStatus', 'Saved.', 'success');
+    setTimeout(() => hideStatus('exportSettingsStatus'), 2000);
+  });
+});
+
 // Model display preference (browse view's Model column)
 function loadModelDisplayPref() {
   chrome.storage.local.get(['modelDisplay'], (result) => {

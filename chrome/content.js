@@ -220,6 +220,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         // Infer model if null
         data.model = inferModel(data);
 
+        // Load Obsidian filename template (only used when format === 'obsidian')
+        let obsidianTemplate = '';
+        if (request.format === 'obsidian') {
+          const storageData = await new Promise(resolve => chrome.storage.local.get(['obsidianFilenameTemplate'], resolve));
+          obsidianTemplate = storageData.obsidianFilenameTemplate || '';
+        }
+
         // Check if we need to extract artifacts to separate files
         if (request.extractArtifacts || request.flattenArtifacts) {
           // Extract artifacts
@@ -236,6 +243,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 case 'markdown':
                   conversationContent = convertToMarkdown(data, request.includeMetadata, request.conversationId, request.includeArtifacts, request.includeThinking);
                   conversationFilename = `${data.name || request.conversationId}.md`;
+                  break;
+                case 'obsidian':
+                  conversationContent = convertToObsidian(data, request.conversationId, { includeArtifacts: request.includeArtifacts, includeThinking: request.includeThinking });
+                  conversationFilename = obsidianFilename(data, obsidianTemplate);
                   break;
                 case 'text':
                   conversationContent = convertToText(data, request.includeMetadata, request.includeArtifacts, request.includeThinking);
@@ -316,6 +327,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 filename = `${data.name || request.conversationId}.md`;
                 type = 'text/markdown';
                 break;
+              case 'obsidian':
+                content = convertToObsidian(data, request.conversationId, { includeArtifacts: request.includeArtifacts, includeThinking: request.includeThinking });
+                filename = obsidianFilename(data, obsidianTemplate);
+                type = 'text/markdown';
+                break;
               case 'text':
                 content = convertToText(data, request.includeMetadata, request.includeArtifacts, request.includeThinking);
                 filename = `${data.name || request.conversationId}.txt`;
@@ -368,6 +384,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
               case 'markdown':
                 content = convertToMarkdown(data, request.includeMetadata, request.conversationId, request.includeArtifacts, request.includeThinking);
                 filename = `${data.name || request.conversationId}.md`;
+                type = 'text/markdown';
+                break;
+              case 'obsidian':
+                content = convertToObsidian(data, request.conversationId, { includeArtifacts: request.includeArtifacts, includeThinking: request.includeThinking });
+                filename = obsidianFilename(data, obsidianTemplate);
                 type = 'text/markdown';
                 break;
               case 'text':
@@ -427,7 +448,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     fetchAllConversations(request.orgId)
       .then(async conversations => {
         console.log(`Fetched ${conversations.length} conversations`);
-        
+
+        // Load Obsidian filename template (only used when format === 'obsidian')
+        let obsidianTemplate = '';
+        if (request.format === 'obsidian') {
+          const storageData = await new Promise(resolve => chrome.storage.local.get(['obsidianFilenameTemplate'], resolve));
+          obsidianTemplate = storageData.obsidianFilenameTemplate || '';
+        }
+
         if (request.extractArtifacts || request.flattenArtifacts) {
           // When extracting artifacts (nested or flat), always create a ZIP
           const zip = new JSZip();
@@ -464,6 +492,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
               if (request.format === 'markdown') {
                 conversationContent = convertToMarkdown(fullConv, request.includeMetadata, conv.uuid, request.includeArtifacts, request.includeThinking);
                 conversationFilename = `${folderName}.md`;
+              } else if (request.format === 'obsidian') {
+                conversationContent = convertToObsidian(fullConv, conv.uuid, { includeArtifacts: request.includeArtifacts, includeThinking: request.includeThinking });
+                conversationFilename = obsidianFilename(fullConv, obsidianTemplate);
               } else if (request.format === 'text') {
                 conversationContent = convertToText(fullConv, request.includeMetadata, request.includeArtifacts, request.includeThinking);
                 conversationFilename = `${folderName}.txt`;
@@ -572,6 +603,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
               if (request.format === 'markdown') {
                 content = convertToMarkdown(fullConv, request.includeMetadata, conv.uuid, request.includeArtifacts, request.includeThinking);
                 filename = `${safeName}.md`;
+              } else if (request.format === 'obsidian') {
+                content = convertToObsidian(fullConv, conv.uuid, { includeArtifacts: request.includeArtifacts, includeThinking: request.includeThinking });
+                filename = obsidianFilename(fullConv, obsidianTemplate);
               } else if (request.format === 'text') {
                 content = convertToText(fullConv, request.includeMetadata, request.includeArtifacts, request.includeThinking);
                 filename = `${safeName}.txt`;

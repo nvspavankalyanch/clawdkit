@@ -157,6 +157,12 @@
 
 ## Completed ✅
 
+- **Obsidian-ready export** (v1.2.0)
+  - "Obsidian" format option added to popup, browse page, and all export paths (Export Current, Export All, bulk browse export)
+  - Exports standard Markdown with YAML frontmatter: `title`, `date`, `model`, `source`, `tags`
+  - `convertToObsidian()` and `obsidianFilename()` in `utils.js` — reuses `convertToMarkdown()` for the body
+  - Configurable filename template in Options → Export (tokens: `{{date}}`, `{{title}}`; default: `{{date}}-{{title}}`)
+
 - **Counter integration** (v1.1.0)
   - Merged the standalone Counter extension into ClawdKit
   - Token count with mini progress bar (200k context limit), cache timer countdown, session (5h) and weekly (7d) usage bars with reset countdowns

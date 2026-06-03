@@ -728,6 +728,14 @@ async function exportConversation(conversationId, conversationName) {
     // Infer model if null
     data.model = inferModel(data);
 
+    // Load Obsidian filename template (only used when format === 'obsidian')
+    let obsidianTemplate = '';
+    if (format === 'obsidian') {
+      obsidianTemplate = await new Promise(resolve =>
+        chrome.storage.local.get(['obsidianFilenameTemplate'], r => resolve(r.obsidianFilenameTemplate || ''))
+      );
+    }
+
     // Check if we need to extract artifacts to separate files
     if (extractArtifacts || flattenArtifacts) {
       const artifactFiles = extractArtifactFiles(data, artifactFormat);
@@ -744,6 +752,10 @@ async function exportConversation(conversationId, conversationName) {
             case 'markdown':
               conversationContent = convertToMarkdown(data, includeMetadata, conversationId, includeArtifacts, includeThinking);
               conversationFilename = `${conversationName || conversationId}.md`;
+              break;
+            case 'obsidian':
+              conversationContent = convertToObsidian(data, conversationId, { includeArtifacts, includeThinking });
+              conversationFilename = obsidianFilename(data, obsidianTemplate);
               break;
             case 'text':
               conversationContent = convertToText(data, includeMetadata, includeArtifacts, includeThinking);
@@ -803,6 +815,11 @@ async function exportConversation(conversationId, conversationName) {
             filename = `${conversationName || conversationId}.md`;
             type = 'text/markdown';
             break;
+          case 'obsidian':
+            content = convertToObsidian(data, conversationId, { includeArtifacts, includeThinking });
+            filename = obsidianFilename(data, obsidianTemplate);
+            type = 'text/markdown';
+            break;
           case 'text':
             content = convertToText(data, includeMetadata, includeArtifacts, includeThinking);
             filename = `${conversationName || conversationId}.txt`;
@@ -827,6 +844,11 @@ async function exportConversation(conversationId, conversationName) {
           case 'markdown':
             content = convertToMarkdown(data, includeMetadata, conversationId, includeArtifacts, includeThinking);
             filename = `${conversationName || conversationId}.md`;
+            type = 'text/markdown';
+            break;
+          case 'obsidian':
+            content = convertToObsidian(data, conversationId, { includeArtifacts, includeThinking });
+            filename = obsidianFilename(data, obsidianTemplate);
             type = 'text/markdown';
             break;
           case 'text':
@@ -1206,6 +1228,11 @@ async function exportAllFiltered() {
   const artifactFormat = document.getElementById('artifactFormat').value;
   const flattenArtifacts = document.getElementById('flattenArtifacts').checked;
 
+  // Load Obsidian filename template once (only used when format === 'obsidian')
+  const obsidianTemplate = format === 'obsidian'
+    ? await new Promise(resolve => chrome.storage.local.get(['obsidianFilenameTemplate'], r => resolve(r.obsidianFilenameTemplate || '')))
+    : '';
+
   const button = document.getElementById('exportAllBtn');
   button.disabled = true;
   const originalButtonText = button.textContent;
@@ -1321,6 +1348,10 @@ async function exportAllFiltered() {
             case 'markdown':
               content = convertToMarkdown(data, includeMetadata, conv.uuid, includeArtifacts, includeThinking);
               filename = `${safeName}.md`;
+              break;
+            case 'obsidian':
+              content = convertToObsidian(data, conv.uuid, { includeArtifacts, includeThinking });
+              filename = obsidianFilename(data, obsidianTemplate);
               break;
             case 'text':
               content = convertToText(data, includeMetadata, includeArtifacts, includeThinking);

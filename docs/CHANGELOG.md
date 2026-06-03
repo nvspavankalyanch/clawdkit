@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.2.0] - 2026-06-03
+
+### Features
+- **Obsidian export format** — new "Obsidian" option in the format selector (popup, browse, bulk export). Exports standard Markdown with YAML frontmatter (`title`, `date`, `model`, `source`, `tags`) compatible with Obsidian's metadata panel. Available across all export paths: Export Current, Export All, and Browse page single and bulk exports.
+- **Obsidian filename template** — configurable in Options → Export. Supports `{{date}}` (YYYY-MM-DD) and `{{title}}` tokens. Default: `{{date}}-{{title}}`.
+
 ## [1.1.0] - 2026-05-31
 
 ### Design

@@ -226,6 +226,41 @@ function convertToText(data, includeMetadata, includeArtifacts = true, includeTh
   return text.trim();
 }
 
+// Convert to Obsidian-compatible Markdown: standard Markdown body with YAML frontmatter.
+// Reuses convertToMarkdown() for the body — metadata header is omitted since frontmatter covers it.
+function convertToObsidian(data, conversationId, options = {}) {
+  const model = data.model || inferModel(data);
+  const date = new Date(data.created_at).toISOString().split('T')[0];
+  const title = (data.name || 'Untitled Conversation').replace(/"/g, '\\"');
+  const frontmatter = [
+    '---',
+    `title: "${title}"`,
+    `date: ${date}`,
+    `model: ${model}`,
+    `source: https://claude.ai/chat/${conversationId || ''}`,
+    `tags: []`,
+    '---',
+    ''
+  ].join('\n');
+  const includeArtifacts = options.includeArtifacts !== false;
+  const includeThinking = options.includeThinking !== false;
+  return frontmatter + convertToMarkdown(data, false, conversationId, includeArtifacts, includeThinking);
+}
+
+// Build a filename for an Obsidian export using a template string.
+// Supported tokens: {{date}} (YYYY-MM-DD from created_at), {{title}} (sanitized name).
+// Default template: '{{date}}-{{title}}'
+function obsidianFilename(data, template) {
+  const t = (template && template.trim()) ? template.trim() : '{{date}}-{{title}}';
+  const date = new Date(data.created_at).toISOString().split('T')[0];
+  const raw = data.name || 'Untitled Conversation';
+  const title = raw.replace(/[<>:"/\\|?*\n\r]/g, '_').replace(/\s+/g, ' ').trim();
+  return t
+    .replace(/\{\{date\}\}/g, date)
+    .replace(/\{\{title\}\}/g, title)
+    .replace(/\.md$/i, '') + '.md';
+}
+
 // Download file utility
 function downloadFile(content, filename, type = 'application/json') {
   const blob = new Blob([content], { type });
@@ -1129,6 +1164,8 @@ if (typeof module !== 'undefined' && module.exports) {
     getCurrentBranch,
     convertToMarkdown,
     convertToText,
+    convertToObsidian,
+    obsidianFilename,
     downloadFile,
     extractArtifactsFromMessage,
     extractArtifactsFromText,
