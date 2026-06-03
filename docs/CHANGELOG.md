@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.7] - 2026-06-03
+
+### Fixes
+- **PDF export (popup + browse)** — replaced anchor-click `target="_blank"` with `window.open()` so popup blockers no longer silently swallow the new tab; a clear error message is shown if the tab is still blocked
+- **Export All — Extended thinking** — `includeThinking` was missing from the `exportAllConversations` message; bulk exports now correctly include thinking blocks when the toggle is ON
+- **Artifact format — Text option** — added "Text" as a fourth artifact format button in the popup (matching the browse page which already had it)
+- **ZIP error handling** — converted five fire-and-forget `zip.generateAsync().then().catch()` chains to `await`; if generation fails the popup now reports the error instead of falsely showing "success"
+
 ## [1.2.6] - 2026-06-03
 
 ### Fixes

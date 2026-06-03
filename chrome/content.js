@@ -228,9 +228,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           });
           const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
           const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url; a.target = '_blank'; a.rel = 'noopener';
-          document.body.appendChild(a); a.click(); document.body.removeChild(a);
+          const win = window.open(url, '_blank');
+          if (!win) {
+            URL.revokeObjectURL(url);
+            sendResponse({ success: false, error: 'PDF preview was blocked by your browser. Allow popups for claude.ai and try again.' });
+            return;
+          }
           setTimeout(() => URL.revokeObjectURL(url), 60000);
           recordExportTimestamp(request.conversationId);
           sendResponse({ success: true });
@@ -321,7 +324,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             await addConversationFilesToFolder(zip.folder('attachments'), request.orgId, data);
 
             // Generate and download ZIP
-            zip.generateAsync({ type: 'blob' }).then(blob => {
+            try {
+              const blob = await zip.generateAsync({ type: 'blob' });
               const url = URL.createObjectURL(blob);
               const a = document.createElement('a');
               a.href = url;
@@ -330,8 +334,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
               a.click();
               document.body.removeChild(a);
               URL.revokeObjectURL(url);
-            }).catch(err => console.error('ZIP generation failed:', err));
-
+            } catch (err) {
+              console.error('ZIP generation failed:', err);
+              sendResponse({ success: false, error: 'ZIP generation failed: ' + err.message });
+              return;
+            }
             console.log(`Downloading ZIP with conversation and ${artifactFiles.length} artifact(s)`);
             recordExportTimestamp(request.conversationId);
             sendResponse({ success: true });
@@ -369,7 +376,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
               for (const af of attFiles) attachmentsFolder.file(af.filename, af.content);
               if (attManifest) attachmentsFolder.file('_binary_uploads.md', attManifest);
               await addConversationFilesToFolder(attachmentsFolder, request.orgId, data);
-              zip.generateAsync({ type: 'blob' }).then(blob => {
+              try {
+                const blob = await zip.generateAsync({ type: 'blob' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
@@ -378,7 +386,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 a.click();
                 document.body.removeChild(a);
                 URL.revokeObjectURL(url);
-              }).catch(err => console.error('ZIP generation failed:', err));
+              } catch (err) {
+                console.error('ZIP generation failed:', err);
+                recordExportTimestamp(request.conversationId);
+                sendResponse({ success: false, error: 'ZIP generation failed: ' + err.message });
+                return;
+              }
             } else {
               console.log('No artifacts or uploads found. Downloading file:', filename);
               downloadFile(content, filename, type);
@@ -428,7 +441,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
               for (const af of attFiles) attachmentsFolder.file(af.filename, af.content);
               if (attManifest) attachmentsFolder.file('_binary_uploads.md', attManifest);
               await addConversationFilesToFolder(attachmentsFolder, request.orgId, data);
-              zip.generateAsync({ type: 'blob' }).then(blob => {
+              try {
+                const blob = await zip.generateAsync({ type: 'blob' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
@@ -437,7 +451,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 a.click();
                 document.body.removeChild(a);
                 URL.revokeObjectURL(url);
-              }).catch(err => console.error('ZIP generation failed:', err));
+              } catch (err) {
+                console.error('ZIP generation failed:', err);
+                recordExportTimestamp(request.conversationId);
+                sendResponse({ success: false, error: 'ZIP generation failed: ' + err.message });
+                return;
+              }
             } else {
               console.log('Downloading file:', filename);
               downloadFile(content, filename, type);
@@ -576,7 +595,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           }
 
           // Generate and download ZIP
-          zip.generateAsync({ type: 'blob' }).then(blob => {
+          const exportedIds = conversations.map(c => c.uuid).filter(id => !failedUuids.has(id));
+          recordExportTimestamps(exportedIds);
+          try {
+            const blob = await zip.generateAsync({ type: 'blob' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
@@ -589,11 +611,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
-          }).catch(err => console.error('ZIP generation failed:', err));
-
-          // Record export timestamps for all successfully exported conversations
-          const exportedIds = conversations.map(c => c.uuid).filter(id => !failedUuids.has(id));
-          recordExportTimestamps(exportedIds);
+          } catch (err) {
+            console.error('ZIP generation failed:', err);
+            sendResponse({ success: false, error: 'ZIP generation failed: ' + err.message });
+            return;
+          }
 
           if (errors.length > 0) {
             console.warn('Some conversations failed to export:', errors);
@@ -659,7 +681,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           }
 
           // Generate and download ZIP
-          zip.generateAsync({ type: 'blob' }).then(blob => {
+          const exportedIds2 = conversations.map(c => c.uuid).filter(id => !failedUuids2.has(id));
+          recordExportTimestamps(exportedIds2);
+          try {
+            const blob = await zip.generateAsync({ type: 'blob' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
@@ -669,11 +694,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
-          }).catch(err => console.error('ZIP generation failed:', err));
-
-          // Record export timestamps for successfully exported conversations
-          const exportedIds = conversations.map(c => c.uuid).filter(id => !failedUuids2.has(id));
-          recordExportTimestamps(exportedIds);
+          } catch (err) {
+            console.error('ZIP generation failed:', err);
+            sendResponse({ success: false, error: 'ZIP generation failed: ' + err.message });
+            return;
+          }
 
           if (errors.length > 0) {
             console.warn('Some conversations failed to export:', errors);

@@ -841,9 +841,12 @@ async function exportConversation(conversationId, conversationName) {
       const html = convertToHTML(data, conversationId, { includeArtifacts, includeThinking });
       const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.target = '_blank'; a.rel = 'noopener';
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      const win = window.open(url, '_blank', 'noopener');
+      if (!win) {
+        URL.revokeObjectURL(url);
+        showToast('PDF preview blocked by popup blocker — allow popups for this page and try again.', true);
+        return;
+      }
       setTimeout(() => URL.revokeObjectURL(url), 60000);
       await saveExportTimestamp(conversationId);
       showToast(`PDF ready: ${conversationName}`);

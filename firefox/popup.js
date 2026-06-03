@@ -194,6 +194,7 @@ document.getElementById('exportCurrent').addEventListener('click', async () => {
       orgId,
       format: document.getElementById('format').value,
       includeChats: document.getElementById('includeChats').checked,
+      includeThinking: document.getElementById('includeThinking').checked,
       includeMetadata: document.getElementById('includeMetadata').checked,
       includeArtifacts: document.getElementById('includeArtifacts').checked,
       extractArtifacts: document.getElementById('extractArtifacts').checked,
