@@ -436,7 +436,7 @@ function convertToHTML(data, conversationId, options) {
 </head>
 <body>
 <div class="print-bar">
-  <button onclick="window.print()">Print / Save as PDF</button>
+  <button id="cc-print-btn">Print / Save as PDF</button>
   <span class="hint">In the print dialog, choose <strong>Save as PDF</strong> as the destination.</span>
 </div>
 <div class="conversation">

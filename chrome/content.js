@@ -234,6 +234,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           win.document.open();
           win.document.write(html);
           win.document.close();
+          // The inline onclick is blocked by the inherited CSP, so wire the
+          // print button from this (opener) context instead.
+          const printBtn = win.document.getElementById('cc-print-btn');
+          if (printBtn) printBtn.addEventListener('click', () => win.print());
+          win.focus();
           recordExportTimestamp(request.conversationId);
           sendResponse({ success: true });
           return;

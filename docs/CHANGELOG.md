@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.2.10] - 2026-06-03
+
+### Fixes
+- **PDF "Print / Save as PDF" button did nothing** — the button used an inline `onclick="window.print()"` handler. Contrary to the v1.2.9 note, `about:blank` *does* inherit the opener's origin and CSP (claude.ai's strict policy in the content script, the extension's own policy on the browse page), both of which block inline event handlers — so the click was silently ignored. Removed the inline handler and now wire the button via `addEventListener` from the opener context (content.js / browse.js), which isn't subject to the document's CSP. Also focuses the new tab so the button is immediately usable. Applied to both Chrome and Firefox, popup and browse flows.
+
 ## [1.2.9] - 2026-06-03
 
 ### Fixes
