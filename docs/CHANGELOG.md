@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.2.11] - 2026-06-03
+
+### Fixes
+- **PDF lost all styling when printing/saving** — the preview rendered the full formatted UI (shaded code blocks, bordered artifacts, theme background) but the printed/saved PDF came out as plain text. Browsers suppress background colors when printing unless `print-color-adjust: exact` is set, so every shaded box collapsed away. The `@media print` block now (a) forces the light "paper" palette regardless of the viewer's dark mode and (b) enables `print-color-adjust: exact`, so code blocks, artifacts and other UI survive into the PDF.
+
 ## [1.2.10] - 2026-06-03
 
 ### Fixes

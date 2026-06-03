@@ -352,6 +352,15 @@ pre code{background:none;padding:0;font-size:inherit;}
 .artifact-lang{font-weight:400;opacity:.65;}
 .artifact pre{border-radius:0;margin:0;}
 @media print{
+  /* Force the light "paper" palette regardless of the viewer's dark mode, and
+     tell the browser to actually render backgrounds/borders (suppressed by
+     default when printing) so code blocks, artifacts and other shaded UI
+     survive into the PDF instead of collapsing to plain text. */
+  :root{
+    --bg:#fff;--text:#1c1a17;--muted:#72685e;--border:#e4ded5;
+    --code-bg:#f4f1eb;--accent:#c2603d;--accent2:#9d4c2e;
+  }
+  *,*::before,*::after{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
   .print-bar{display:none!important;}
   body{max-width:100%;font-size:11pt;}
   .conversation{padding:0;}
