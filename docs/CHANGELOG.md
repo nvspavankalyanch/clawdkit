@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.2.5] - 2026-06-03
+
+### Features
+- **Bookmarks** — star any message on claude.ai with a ☆ button injected at the bottom of each message (human and Claude). Clicking toggles between ☆ (unstarred, subtle) and ★ (gold, bookmarked). Star state persists and is restored when revisiting a conversation. Bookmarks view in Browse page sidebar (star icon nav item) shows all starred messages across conversations — columns: Conversation, Message preview, Sender, Date, Remove. Count badge on sidebar updates live via `storage.onChanged`. Stored in `chrome.storage.local.bookmarks`.
+- **Browse page PDF** — fixed missing PDF option in the browse page export format selector (was present in popup but missing from browse).
+
 ## [1.2.4] - 2026-06-03
 
 ### Features

@@ -420,6 +420,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
         Exported
       </a>
+      <a href="#" id="nav-bookmarks">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.1 8.3 22 9.3 17 14.1 18.2 21 12 17.8 5.8 21 7 14.1 2 9.3 8.9 8.3 12 2"/></svg>
+        Bookmarks <span class="ct" id="nav-bm-count"></span>
+      </a>
       <div class="nav-h">Options</div>
       <a href="#" id="nav-export-opts">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
@@ -520,7 +524,7 @@
         </div>
       </div>
 
-      <div class="toolbar">
+      <div class="toolbar" id="cvToolbar">
         <div class="search" id="searchBox">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
           <input type="text" id="searchInput" placeholder="Search conversations…">
@@ -556,6 +560,7 @@
               <option value="json">JSON</option>
               <option value="markdown">Markdown</option>
               <option value="obsidian">Obsidian</option>
+              <option value="pdf">PDF</option>
               <option value="text">Plain Text</option>
             </select>
             <label class="exp-label" title="Include the conversation messages"><input type="checkbox" id="includeChats" checked> Messages</label>

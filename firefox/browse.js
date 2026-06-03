@@ -101,6 +101,107 @@ let dateFormat = 'mdy'; // 'mdy' or 'dmy'
 let timeFormat = '12h'; // '12h' or '24h'
 let modelDisplay = 'original'; // 'original' (first-seen) or 'current'
 
+// ─────────────────────────────────────────────────────────────────────────
+// Bookmarks view
+// ─────────────────────────────────────────────────────────────────────────
+
+let bookmarksMode = false;
+
+async function loadBookmarksFromStorage() {
+  return new Promise(resolve => chrome.storage.local.get(['bookmarks'], r => resolve(Object.values(r.bookmarks || {}))));
+}
+
+async function deleteBookmark(id) {
+  return new Promise(resolve => {
+    chrome.storage.local.get(['bookmarks'], r => {
+      const bms = r.bookmarks || {};
+      delete bms[id];
+      chrome.storage.local.set({ bookmarks: bms }, resolve);
+    });
+  });
+}
+
+function renderBookmarksView(bookmarks) {
+  bookmarks.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+  const bmCount = document.getElementById('nav-bm-count');
+  if (bmCount) bmCount.textContent = bookmarks.length > 0 ? bookmarks.length : '';
+
+  if (bookmarks.length === 0) {
+    document.getElementById('tableContent').innerHTML =
+      '<div style="padding:48px 32px;text-align:center;color:var(--ink-3);font-size:14px">' +
+      '<div style="font-size:28px;margin-bottom:12px">☆</div>' +
+      '<div style="font-weight:600;margin-bottom:6px">No bookmarks yet</div>' +
+      '<div>Star any message on claude.ai to bookmark it.</div></div>';
+    return;
+  }
+
+  const rows = bookmarks.map(bm => {
+    const preview = escapeHtml((bm.messageText || '').slice(0, 140)) + (bm.messageText?.length > 140 ? '…' : '');
+    const convName = escapeHtml(bm.conversationName || bm.conversationId);
+    const sender = bm.sender === 'claude' ? 'Claude' : 'User';
+    const date = bm.createdAt ? formatDate(new Date(bm.createdAt)) : '';
+    const link = `https://claude.ai/chat/${encodeURIComponent(bm.conversationId)}`;
+    return `<tr>
+      <td><a href="${link}" target="_blank" class="conv-link">${convName}</a></td>
+      <td class="bm-preview-cell">${preview}</td>
+      <td>${sender}</td>
+      <td>${escapeHtml(date)}</td>
+      <td><button class="bm-del-btn" data-bm-id="${escapeHtml(bm.id)}" title="Remove bookmark">✕</button></td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('tableContent').innerHTML = `
+    <table class="conv-table">
+      <thead><tr>
+        <th>Conversation</th>
+        <th>Message</th>
+        <th>Sender</th>
+        <th>Bookmarked</th>
+        <th></th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+
+  document.querySelectorAll('.bm-del-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      await deleteBookmark(btn.dataset.bmId);
+      btn.closest('tr').remove();
+      const remaining = document.querySelectorAll('.bm-del-btn').length;
+      if (remaining === 0) renderBookmarksView([]);
+      const bmCount = document.getElementById('nav-bm-count');
+      if (bmCount) bmCount.textContent = remaining > 0 ? remaining : '';
+    });
+  });
+}
+
+async function showBookmarksView() {
+  bookmarksMode = true;
+  document.querySelector('.top h1').textContent = 'Bookmarks';
+  const toolbar = document.getElementById('cvToolbar');
+  const actions = document.querySelector('.top-actions');
+  const expPanel = document.getElementById('exportOptionsPanel');
+  if (toolbar) toolbar.style.display = 'none';
+  if (actions) actions.style.display = 'none';
+  if (expPanel) expPanel.classList.remove('show');
+
+  document.querySelectorAll('.nav a').forEach(a => a.classList.remove('on'));
+  document.getElementById('nav-bookmarks')?.classList.add('on');
+
+  const bookmarks = await loadBookmarksFromStorage();
+  renderBookmarksView(bookmarks);
+}
+
+function exitBookmarksMode() {
+  if (!bookmarksMode) return;
+  bookmarksMode = false;
+  document.querySelector('.top h1').textContent = 'Conversations';
+  const toolbar = document.getElementById('cvToolbar');
+  const actions = document.querySelector('.top-actions');
+  if (toolbar) toolbar.style.display = '';
+  if (actions) actions.style.display = '';
+}
+
 // Export timestamp storage helpers
 async function loadExportTimestamps() {
   return new Promise((resolve) => {
@@ -219,6 +320,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadModelSnapshots();
   await loadDateTimePrefs();
   await loadModelDisplayPref();
+  // Initialise bookmark count badge
+  chrome.storage.local.get(['bookmarks'], r => {
+    const count = Object.keys(r.bookmarks || {}).length;
+    const bmCount = document.getElementById('nav-bm-count');
+    if (bmCount && count > 0) bmCount.textContent = count;
+  });
   const elapsed = Date.now() - loadingStart;
   if (elapsed < 1000) await new Promise(r => setTimeout(r, 1000 - elapsed));
   const loadingText = document.getElementById('loadingText');
@@ -474,6 +581,7 @@ function getSortIndicator(field) {
 
 // Display conversations in table
 function displayConversations() {
+  exitBookmarksMode(); // restore normal view if coming from bookmarks
   const tableContent = document.getElementById('tableContent');
 
   if (filteredConversations.length === 0) {
@@ -1787,4 +1895,25 @@ function setupEventListeners() {
 
   // Populate dropdown once projects are loaded (enables button if projects exist)
   populateProjectDropdown();
+
+  // Bookmarks nav item
+  const navBookmarks = document.getElementById('nav-bookmarks');
+  if (navBookmarks) {
+    navBookmarks.addEventListener('click', e => {
+      e.preventDefault();
+      showBookmarksView();
+    });
+  }
+
+  // Refresh bookmark count badge when storage changes (e.g. starred from claude.ai tab)
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && 'bookmarks' in changes) {
+      const count = Object.keys(changes.bookmarks.newValue || {}).length;
+      const bmCount = document.getElementById('nav-bm-count');
+      if (bmCount) bmCount.textContent = count > 0 ? count : '';
+      if (bookmarksMode) {
+        renderBookmarksView(Object.values(changes.bookmarks.newValue || {}));
+      }
+    }
+  });
 }

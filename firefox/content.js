@@ -872,6 +872,110 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
 });
 
+// === Bookmarks ===
+
+function _bmId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+async function _bmLoad() {
+  return new Promise(r => chrome.storage.local.get(['bookmarks'], d => r(d.bookmarks || {})));
+}
+async function _bmSave(obj) {
+  return new Promise(r => chrome.storage.local.set({ bookmarks: obj }, r));
+}
+
+async function handleBookmarkClick(btn, el, sender) {
+  const conversationId = location.pathname.match(/\/chat\/([^/?]+)/)?.[1];
+  if (!conversationId) return;
+
+  if (btn.dataset.ctBmId) {
+    const bms = await _bmLoad();
+    delete bms[btn.dataset.ctBmId];
+    await _bmSave(bms);
+    delete btn.dataset.ctBmId;
+    btn.textContent = '☆';
+    btn.classList.remove('ct-bm-on');
+    btn.title = 'Bookmark';
+  } else {
+    const id = _bmId();
+    const preview = (el.innerText || '').trim().replace(/\s+/g, ' ').slice(0, 300);
+    const convName = document.title.replace(/\s*[-–|]\s*(Claude|Anthropic).*$/i, '').trim() || conversationId;
+    const bms = await _bmLoad();
+    bms[id] = { id, conversationId, conversationName: convName, messageText: preview, sender, createdAt: new Date().toISOString() };
+    await _bmSave(bms);
+    btn.dataset.ctBmId = id;
+    btn.textContent = '★';
+    btn.classList.add('ct-bm-on');
+    btn.title = 'Remove bookmark';
+    showCtToast('Bookmarked ★');
+  }
+}
+
+// Cached selectors for message containers; one per sender type.
+const _bmSels = { human: null, claude: null };
+let _bmDebounce2 = null;
+
+function injectBookmarkButtons() {
+  const convId = location.pathname.match(/\/chat\/([^/?]+)/)?.[1];
+  const SELS = {
+    human: ['[data-testid="human-turn"]', '[data-testid="human-turn-inner"]'],
+    claude: ['[data-testid="ai-turn"]', '[data-testid="ai-turn-inner"]']
+  };
+
+  for (const [sender, candidates] of Object.entries(SELS)) {
+    if (_bmSels[sender] && !document.querySelector(_bmSels[sender])) _bmSels[sender] = null;
+    if (!_bmSels[sender]) {
+      for (const sel of candidates) {
+        if (document.querySelector(sel)) { _bmSels[sender] = sel; break; }
+      }
+    }
+    if (!_bmSels[sender]) continue;
+
+    document.querySelectorAll(_bmSels[sender] + ':not([data-ct-bm])').forEach(el => {
+      el.setAttribute('data-ct-bm', sender);
+
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'ct-bm-btn';
+      btn.textContent = '☆';
+      btn.title = 'Bookmark';
+      btn.setAttribute('aria-label', 'Bookmark this message');
+      btn.addEventListener('click', e => { e.stopPropagation(); handleBookmarkClick(btn, el, sender); });
+
+      const wrap = document.createElement('div');
+      wrap.className = 'ct-bm-wrap';
+      wrap.appendChild(btn);
+      el.appendChild(wrap);
+
+      // Restore starred state if this message was previously bookmarked
+      if (convId) {
+        _bmLoad().then(bms => {
+          const preview = (el.innerText || '').trim().replace(/\s+/g, ' ').slice(0, 100);
+          const match = Object.values(bms).find(b =>
+            b.conversationId === convId && b.sender === sender &&
+            b.messageText.slice(0, 100) === preview
+          );
+          if (match) {
+            btn.dataset.ctBmId = match.id;
+            btn.textContent = '★';
+            btn.classList.add('ct-bm-on');
+            btn.title = 'Remove bookmark';
+          }
+        });
+      }
+    });
+  }
+}
+
+(function initBookmarks() {
+  injectBookmarkButtons();
+  const obs = new MutationObserver(() => {
+    clearTimeout(_bmDebounce2);
+    _bmDebounce2 = setTimeout(injectBookmarkButtons, 300);
+  });
+  obs.observe(document.body, { childList: true, subtree: true });
+})();
+
 // === Continue from Here ===
 
 // Clipboard helper — falls back to execCommand if Clipboard API is unavailable.

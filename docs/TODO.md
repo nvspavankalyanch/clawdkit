@@ -157,6 +157,14 @@
 
 ## Completed ✅
 
+- **Bookmarks** (v1.2.5)
+  - ☆/★ button injected into `[data-testid="human-turn"]` and `[data-testid="ai-turn"]` (fallback: `-inner` variants)
+  - `handleBookmarkClick()` in content.js: toggles star, saves `{ id, conversationId, conversationName, messageText (300 chars), sender, createdAt }` to `chrome.storage.local.bookmarks`
+  - Star state restored on page load via `_bmLoad()` + first-100-char text match against stored bookmarks
+  - Browse page: "Bookmarks" nav item + `showBookmarksView()` / `exitBookmarksMode()` toggle; `displayConversations()` calls `exitBookmarksMode()` automatically on return
+  - `storage.onChanged` in browse.js refreshes count badge and re-renders table if bookmarks view is active
+  - Fixed: PDF option missing from browse page `#exportFormat` selector
+
 - **PDF export** (v1.2.4)
   - `convertToHTML(data, conversationId, options)` in `utils.js` — self-contained HTML with embedded CSS (`_PDF_CSS`)
   - `_htmlEsc()` and `_mdToHtml()` internal helpers: fenced code block extraction + placeholder restore, inline code, bold/italic, paragraph splitting

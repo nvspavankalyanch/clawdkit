@@ -1,3 +1,21 @@
+/* === Bookmark star button ===
+   Injected at the bottom of each message (human and Claude). */
+.ct-bm-wrap {
+  display: flex;
+  padding: 6px 0 2px;
+}
+.ct-bm-btn {
+  background: none; border: none; cursor: pointer;
+  font-size: 14px; line-height: 1; padding: 2px 4px;
+  color: currentColor; opacity: 0.2;
+  border-radius: 4px;
+  transition: opacity 0.15s, color 0.15s;
+  user-select: none;
+}
+.ct-bm-btn:hover { opacity: 0.6; }
+.ct-bm-btn.ct-bm-on { color: #e8a020; opacity: 1; }
+.ct-bm-btn.ct-bm-on:hover { color: #c07800; opacity: 1; }
+
 /* === Continue from Here button ===
    Injected at the bottom of each Claude response container. */
 .ct-cfh-wrap {
