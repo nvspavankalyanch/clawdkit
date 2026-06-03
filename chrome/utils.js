@@ -226,6 +226,228 @@ function convertToText(data, includeMetadata, includeArtifacts = true, includeTh
   return text.trim();
 }
 
+// ============================================================================
+// PDF / HTML Export
+// ============================================================================
+
+// Internal: escape HTML entities.
+function _htmlEsc(s) {
+  return String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Internal: convert a subset of Markdown to HTML for use in the PDF output.
+// Handles fenced code blocks, inline code, bold/italic, and paragraphs.
+// Not a full parser — covers the patterns Claude actually generates.
+function _mdToHtml(text) {
+  if (!text) return '';
+  const codes = [];
+  // Extract fenced code blocks first so their content is not further processed
+  let s = text
+    .replace(/```\w*\n([\s\S]*?)```/g, (_, c) => { codes.push(_htmlEsc(c)); return `\x01${codes.length - 1}`; })
+    .replace(/```([\s\S]*?)```/g, (_, c) => { codes.push(_htmlEsc(c)); return `\x01${codes.length - 1}`; });
+  // HTML-escape the rest
+  s = _htmlEsc(s);
+  // Inline code
+  s = s.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+  // Bold + italic
+  s = s.replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>');
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+  // Paragraphs from double newlines
+  s = s.split(/\n\n+/).map(para => {
+    const p = para.trim();
+    if (!p) return '';
+    if (/^\x01\d+$/.test(p)) return p; // bare code block placeholder
+    return '<p>' + p.replace(/\n/g, '<br>') + '</p>';
+  }).join('');
+  // Restore code blocks
+  return s.replace(/\x01(\d+)/g, (_, i) => `<pre><code>${codes[+i]}</code></pre>`);
+}
+
+// CSS for the generated print HTML — embedded so the file is self-contained.
+const _PDF_CSS = `
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#fefefe;--text:#1c1a17;--muted:#72685e;--border:#e4ded5;
+  --code-bg:#f4f1eb;--accent:#c2603d;--accent2:#9d4c2e;
+}
+@media(prefers-color-scheme:dark){
+  :root{
+    --bg:#1a1713;--text:#e8e2d8;--muted:#9a9080;--border:#302822;
+    --code-bg:#252018;--accent:#d77a52;--accent2:#e89068;
+  }
+}
+body{
+  background:var(--bg);color:var(--text);
+  font-family:Georgia,'Times New Roman',serif;
+  font-size:14px;line-height:1.78;
+  max-width:820px;margin:0 auto;padding:0;
+}
+.print-bar{
+  position:sticky;top:0;background:var(--bg);
+  border-bottom:1px solid var(--border);
+  padding:11px 32px;display:flex;align-items:center;gap:14px;
+  font-family:system-ui,sans-serif;font-size:13px;z-index:100;
+}
+.print-bar button{
+  padding:7px 16px;background:var(--accent);color:#fff;
+  border:none;border-radius:8px;cursor:pointer;
+  font-weight:600;font-size:13px;font-family:inherit;
+  transition:background .15s;
+}
+.print-bar button:hover{background:var(--accent2);}
+.print-bar .hint{color:var(--muted);font-size:12px;}
+.conversation{padding:36px 32px 60px;}
+h1{font-size:26px;font-weight:700;letter-spacing:-.02em;margin-bottom:6px;}
+.meta{
+  font-family:system-ui,sans-serif;font-size:12px;color:var(--muted);
+  display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:38px;
+}
+.meta a{color:var(--muted);text-decoration:underline;}
+.sep{opacity:.35;}
+.message{padding:22px 0;border-top:1px solid var(--border);}
+.label{
+  font-family:system-ui,sans-serif;font-size:10.5px;font-weight:700;
+  letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;
+}
+.label-claude{color:var(--accent);}
+.text-content p{margin-top:.72em;}
+.text-content p:first-child{margin-top:0;}
+pre{
+  background:var(--code-bg);border-radius:7px;padding:14px 16px;
+  margin:12px 0;font-size:12.5px;line-height:1.55;
+  white-space:pre-wrap;word-break:break-word;overflow-x:auto;
+}
+code{
+  font-family:'Courier New',Courier,monospace;font-size:12.5px;
+  background:var(--code-bg);padding:1px 5px;border-radius:3px;
+}
+pre code{background:none;padding:0;font-size:inherit;}
+.thinking{
+  margin:12px 0;padding:12px 16px;
+  border-left:3px solid var(--border);color:var(--muted);
+}
+.thinking-label{
+  font-family:system-ui,sans-serif;font-size:10px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;
+}
+.attachment{
+  margin:12px 0;padding:10px 14px;background:var(--code-bg);
+  border-radius:7px;font-family:system-ui,sans-serif;font-size:12.5px;
+}
+.att-name{font-weight:600;}
+.att-meta{color:var(--muted);margin-left:8px;font-size:11px;}
+.att-content{margin-top:8px;}
+.artifact{
+  margin:16px 0;border:1px solid var(--border);
+  border-radius:9px;overflow:hidden;
+}
+.artifact-hd{
+  padding:9px 14px;background:var(--code-bg);
+  font-family:system-ui,sans-serif;font-size:11.5px;font-weight:600;
+  border-bottom:1px solid var(--border);
+}
+.artifact-lang{font-weight:400;opacity:.65;}
+.artifact pre{border-radius:0;margin:0;}
+@media print{
+  .print-bar{display:none!important;}
+  body{max-width:100%;font-size:11pt;}
+  .conversation{padding:0;}
+  .message{break-inside:avoid;}
+  pre{font-size:9pt;white-space:pre-wrap;word-break:break-all;}
+  a{color:inherit!important;text-decoration:none;}
+}
+`.trim();
+
+// Generate a self-contained, print-ready HTML document for a single conversation.
+// Opening the returned HTML in a browser tab and clicking "Print" produces a clean PDF.
+function convertToHTML(data, conversationId, options) {
+  const includeArtifacts = !options || options.includeArtifacts !== false;
+  const includeThinking  = !options || options.includeThinking  !== false;
+
+  const title   = data.name || 'Untitled Conversation';
+  const model   = typeof formatModelName === 'function' ? formatModelName(data.model || inferModel(data)) : (data.model || '');
+  const created = data.created_at
+    ? new Date(data.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
+    : '';
+  const link = conversationId ? `https://claude.ai/chat/${conversationId}` : '';
+
+  const branch = getCurrentBranch(data);
+  let messagesHtml = '';
+
+  for (const message of branch) {
+    const isHuman  = message.sender === 'human';
+    const label    = isHuman ? 'User' : 'Claude';
+    let contentHtml = '';
+
+    // Text blocks
+    if (message.content) {
+      for (const c of message.content) {
+        if (c.type === 'thinking' && c.thinking && includeThinking) {
+          contentHtml += `<div class="thinking"><div class="thinking-label">Thinking</div>${_htmlEsc(c.thinking)}</div>`;
+        } else if (c.type === 'text' && c.text) {
+          const cleaned = c.text.replace(/<antArtifact[^>]*>[\s\S]*?<\/antArtifact>/g, '').trim();
+          if (cleaned) contentHtml += `<div class="text-content">${_mdToHtml(cleaned)}</div>`;
+        }
+      }
+    } else if (message.text) {
+      const cleaned = message.text.replace(/<antArtifact[^>]*>[\s\S]*?<\/antArtifact>/g, '').trim();
+      if (cleaned) contentHtml += `<div class="text-content">${_mdToHtml(cleaned)}</div>`;
+    }
+
+    // Attachments
+    if (message.attachments) {
+      for (const att of message.attachments) {
+        if (att.file_name) {
+          const meta = [att.file_type, att.file_size ? `${(att.file_size / 1024).toFixed(1)} KB` : ''].filter(Boolean).join(' · ');
+          contentHtml += `<div class="attachment"><span class="att-name">${_htmlEsc(att.file_name)}</span>${meta ? `<span class="att-meta">${_htmlEsc(meta)}</span>` : ''}${att.extracted_content ? `<pre class="att-content">${_htmlEsc(att.extracted_content)}</pre>` : ''}</div>`;
+        } else if (att.extracted_content) {
+          contentHtml += `<div class="attachment"><span class="att-name">Pasted content</span><pre class="att-content">${_htmlEsc(att.extracted_content)}</pre></div>`;
+        }
+      }
+    }
+
+    // Artifacts
+    if (includeArtifacts) {
+      const artifacts = typeof extractArtifactsFromMessage === 'function' ? extractArtifactsFromMessage(message) : [];
+      for (const art of artifacts) {
+        contentHtml += `<div class="artifact"><div class="artifact-hd">📦 ${_htmlEsc(art.title)}<span class="artifact-lang"> · ${_htmlEsc(art.language || art.type || '')}</span></div><pre><code>${_htmlEsc(art.content)}</code></pre></div>`;
+      }
+    }
+
+    messagesHtml += `<div class="message message-${isHuman ? 'user' : 'claude'}"><div class="label label-${isHuman ? 'user' : 'claude'}">${label}</div><div class="content">${contentHtml}</div></div>`;
+  }
+
+  const metaParts = [
+    created && `<span>${_htmlEsc(created)}</span>`,
+    model   && `<span>${_htmlEsc(model)}</span>`,
+    link    && `<a href="${_htmlEsc(link)}" target="_blank">Open in Claude</a>`,
+  ].filter(Boolean).join('<span class="sep"> · </span>');
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${_htmlEsc(title)}</title>
+<style>${_PDF_CSS}</style>
+</head>
+<body>
+<div class="print-bar">
+  <button onclick="window.print()">Print / Save as PDF</button>
+  <span class="hint">In the print dialog, choose <strong>Save as PDF</strong> as the destination.</span>
+</div>
+<div class="conversation">
+  <h1>${_htmlEsc(title)}</h1>
+  <div class="meta">${metaParts}</div>
+  <div class="messages">${messagesHtml}</div>
+</div>
+</body>
+</html>`;
+}
+
 // Convert to Obsidian-compatible Markdown: standard Markdown body with YAML frontmatter.
 // Reuses convertToMarkdown() for the body — metadata header is omitted since frontmatter covers it.
 function convertToObsidian(data, conversationId, options = {}) {
@@ -1166,6 +1388,7 @@ if (typeof module !== 'undefined' && module.exports) {
     convertToText,
     convertToObsidian,
     obsidianFilename,
+    convertToHTML,
     downloadFile,
     extractArtifactsFromMessage,
     extractArtifactsFromText,

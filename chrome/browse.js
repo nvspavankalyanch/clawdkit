@@ -728,6 +728,21 @@ async function exportConversation(conversationId, conversationName) {
     // Infer model if null
     data.model = inferModel(data);
 
+    // === PDF: open print-ready HTML in a new tab ===
+    if (format === 'pdf') {
+      const html = convertToHTML(data, conversationId, { includeArtifacts, includeThinking });
+      const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.target = '_blank'; a.rel = 'noopener';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      await saveExportTimestamp(conversationId);
+      showToast(`PDF ready: ${conversationName}`);
+      displayConversations(); updateStats();
+      return;
+    }
+
     // Load Obsidian filename template (only used when format === 'obsidian')
     let obsidianTemplate = '';
     if (format === 'obsidian') {
@@ -1227,6 +1242,14 @@ async function exportAllFiltered() {
   const extractArtifacts = document.getElementById('extractArtifacts').checked;
   const artifactFormat = document.getElementById('artifactFormat').value;
   const flattenArtifacts = document.getElementById('flattenArtifacts').checked;
+
+  // PDF bulk export is not supported
+  if (format === 'pdf') {
+    showToast('PDF export works one conversation at a time — use the single Export button per row.', true);
+    button.disabled = false;
+    button.textContent = originalButtonText;
+    return;
+  }
 
   // Load Obsidian filename template once (only used when format === 'obsidian')
   const obsidianTemplate = format === 'obsidian'

@@ -220,6 +220,23 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         // Infer model if null
         data.model = inferModel(data);
 
+        // === PDF: open print-ready HTML in a new tab ===
+        if (request.format === 'pdf') {
+          const html = convertToHTML(data, request.conversationId, {
+            includeArtifacts: request.includeArtifacts,
+            includeThinking: request.includeThinking
+          });
+          const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url; a.target = '_blank'; a.rel = 'noopener';
+          document.body.appendChild(a); a.click(); document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(url), 60000);
+          recordExportTimestamp(request.conversationId);
+          sendResponse({ success: true });
+          return;
+        }
+
         // Load Obsidian filename template (only used when format === 'obsidian')
         let obsidianTemplate = '';
         if (request.format === 'obsidian') {
@@ -445,6 +462,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       if (request.action === 'exportAllConversations') {
     console.log('Export all conversations request received:', request);
     
+    // PDF bulk export is not supported — single conversations only
+    if (request.format === 'pdf') {
+      sendResponse({ success: false, error: 'PDF export works one conversation at a time. Select a conversation and use "Export current" to export as PDF.' });
+      return true;
+    }
+
     fetchAllConversations(request.orgId)
       .then(async conversations => {
         console.log(`Fetched ${conversations.length} conversations`);

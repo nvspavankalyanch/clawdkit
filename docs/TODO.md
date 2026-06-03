@@ -157,6 +157,14 @@
 
 ## Completed ✅
 
+- **PDF export** (v1.2.4)
+  - `convertToHTML(data, conversationId, options)` in `utils.js` — self-contained HTML with embedded CSS (`_PDF_CSS`)
+  - `_htmlEsc()` and `_mdToHtml()` internal helpers: fenced code block extraction + placeholder restore, inline code, bold/italic, paragraph splitting
+  - Opens as blob URL in new tab via `<a target="_blank">` click pattern; 60s cleanup timeout
+  - Generated HTML has sticky "Print / Save as PDF" button + `@media print` stylesheet; no auto-print script
+  - Bulk export (exportAll, browse bulk) shows "single export only" error/toast — PDF stays one conversation at a time
+  - `prefers-color-scheme: dark` support in generated HTML
+
 - **Continue from Here** (v1.2.3)
   - "Continue from here ↗" button injected at the bottom of each Claude response (`[data-testid="ai-turn"]` → fallback `[data-testid="ai-turn-inner"]`)
   - Click → fetches full conversation, walks branch to N-th Claude message, sets `current_leaf_message_uuid` to that message's UUID, runs `convertToMarkdown()` (with artifacts/thinking off), copies result to clipboard

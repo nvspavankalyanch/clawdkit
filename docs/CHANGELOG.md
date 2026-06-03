@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.2.4] - 2026-06-03
+
+### Features
+- **PDF export** — "PDF" format option in the popup and browse page format selectors. Generates a self-contained, print-ready HTML file (opened in a new tab) with a "Print / Save as PDF" button. No external library — uses the browser's native print engine. Supports thinking blocks, attachments, and artifacts. Respects `prefers-color-scheme` for both screen preview and print. Bulk PDF export shows a "use single export" message instead; popup "Export all" with PDF returns a clear error.
+
 ## [1.2.3] - 2026-06-03
 
 ### Features
