@@ -839,15 +839,14 @@ async function exportConversation(conversationId, conversationName) {
     // === PDF: open print-ready HTML in a new tab ===
     if (format === 'pdf') {
       const html = convertToHTML(data, conversationId, { includeArtifacts, includeThinking });
-      const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const win = window.open(url, '_blank', 'noopener');
+      const win = window.open('about:blank', '_blank');
       if (!win) {
-        URL.revokeObjectURL(url);
         showToast('PDF preview blocked by popup blocker — allow popups for this page and try again.', true);
         return;
       }
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      win.document.open();
+      win.document.write(html);
+      win.document.close();
       await saveExportTimestamp(conversationId);
       showToast(`PDF ready: ${conversationName}`);
       displayConversations(); updateStats();

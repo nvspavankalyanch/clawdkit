@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.2.9] - 2026-06-03
+
+### Fixes
+- **PDF print button** — replaced `blob:` URL approach with `about:blank` + `document.write()`. Blob URLs inherit claude.ai's Content Security Policy which blocks inline `onclick` handlers, making the "Print / Save as PDF" button do nothing. `about:blank` has no origin and no inherited CSP, so the button works correctly.
+
 ## [1.2.8] - 2026-06-03
 
 ### Fixes

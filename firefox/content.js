@@ -224,15 +224,14 @@ function getLocalDateTimeString() {
             includeArtifacts: request.includeArtifacts,
             includeThinking: request.includeThinking
           });
-          const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-          const url = URL.createObjectURL(blob);
-          const win = window.open(url, '_blank');
+          const win = window.open('about:blank', '_blank');
           if (!win) {
-            URL.revokeObjectURL(url);
             sendResponse({ success: false, error: 'PDF preview was blocked by your browser. Allow popups for claude.ai and try again.' });
             return;
           }
-          setTimeout(() => URL.revokeObjectURL(url), 60000);
+          win.document.open();
+          win.document.write(html);
+          win.document.close();
           recordExportTimestamp(request.conversationId);
           sendResponse({ success: true });
           return;
