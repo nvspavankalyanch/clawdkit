@@ -90,6 +90,7 @@
       color: var(--ink-2); background: transparent; border: none;
       border-radius: 8px; padding: 8px 0; cursor: pointer;
       transition: .16s; letter-spacing: .01em;
+      white-space: nowrap; overflow: hidden;
     }
     .seg button:hover { color: var(--ink); }
     .seg button[aria-pressed="true"] {
@@ -240,7 +241,7 @@
           <button data-value="markdown" aria-pressed="false">Markdown</button>
           <button data-value="obsidian" aria-pressed="false">Obsidian</button>
           <button data-value="pdf" aria-pressed="false">PDF</button>
-          <button data-value="text" aria-pressed="false">Plain text</button>
+          <button data-value="text" aria-pressed="false">Text</button>
         </div>
         <div class="opts" style="margin-top:14px">
           <div class="opt" id="opt-includeChats" aria-checked="true" role="checkbox" tabindex="0">

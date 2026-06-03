@@ -1352,11 +1352,9 @@ async function exportAllFiltered() {
   const artifactFormat = document.getElementById('artifactFormat').value;
   const flattenArtifacts = document.getElementById('flattenArtifacts').checked;
 
-  // PDF bulk export is not supported
+  // PDF bulk export is not supported — check before disabling the button
   if (format === 'pdf') {
     showToast('PDF export works one conversation at a time — use the single Export button per row.', true);
-    button.disabled = false;
-    button.textContent = originalButtonText;
     return;
   }
 

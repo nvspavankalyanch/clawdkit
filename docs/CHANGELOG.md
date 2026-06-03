@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.2.6] - 2026-06-03
+
+### Fixes
+- **Popup format buttons** — added `white-space: nowrap` to prevent label wrapping with 5 buttons; renamed "Plain text" → "Text" for better fit
+- **Browse bulk export (PDF)** — removed stale `button.disabled = false` / `button.textContent` reset lines in the PDF early-return path (button was not being re-enabled properly after the toast)
+
 ## [1.2.5] - 2026-06-03
 
 ### Features
