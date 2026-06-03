@@ -1,3 +1,17 @@
+/* === Full-Width Mode ===
+   Applied when body has data-ct-wide attribute (set by content.js).
+   Overrides claude.ai's max-width constraints on the conversation and input areas.
+   Uses data-testid selectors (stable) + .mx-auto Tailwind class (less stable).
+   If claude.ai's DOM changes, these selectors may need an update. */
+body[data-ct-wide] [data-testid="chat-input-grid-container"],
+body[data-ct-wide] [data-testid="chat-input-grid-area"],
+body[data-ct-wide] [data-testid="conversation-turn-wrapper"] {
+  max-width: 100% !important;
+}
+body[data-ct-wide] main .mx-auto:not(button):not(nav):not(header) {
+  max-width: 100% !important;
+}
+
 /* Optional: Add a floating export button on Claude.ai pages */
 .claude-exporter-button {
     position: fixed;

@@ -119,6 +119,21 @@ document.getElementById('timeFormatSelect').addEventListener('change', (e) => {
   });
 });
 
+// Wide Mode toggle
+function loadWideModePref() {
+  chrome.storage.local.get(['wideMode'], (result) => {
+    document.getElementById('wideModeToggle').checked = !!result.wideMode;
+  });
+}
+loadWideModePref();
+
+document.getElementById('wideModeToggle').addEventListener('change', (e) => {
+  chrome.storage.local.set({ wideMode: e.target.checked }, () => {
+    showStatus('appearanceStatus', e.target.checked ? 'Wide Mode on — reload any open Claude tabs to apply.' : 'Wide Mode off — reload any open Claude tabs to apply.', 'success');
+    setTimeout(() => hideStatus('appearanceStatus'), 3000);
+  });
+});
+
 // Obsidian filename template
 function loadObsidianFilenamePref() {
   chrome.storage.local.get(['obsidianFilenameTemplate'], (result) => {

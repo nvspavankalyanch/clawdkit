@@ -734,4 +734,25 @@ function getLocalDateTimeString() {
   }
   });
 
+// === Full-Width Mode ===
+// Reads wideMode from storage and toggles data-ct-wide on document.body.
+// CSS in content.css removes claude.ai's max-width constraints when this attribute is present.
+function applyWideMode(enabled) {
+  if (enabled) {
+    document.body.setAttribute('data-ct-wide', '');
+  } else {
+    document.body.removeAttribute('data-ct-wide');
+  }
+}
+
+chrome.storage.local.get(['wideMode'], (result) => {
+  applyWideMode(!!result.wideMode);
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && 'wideMode' in changes) {
+    applyWideMode(!!changes.wideMode.newValue);
+  }
+});
+
 } // End of double-injection guard

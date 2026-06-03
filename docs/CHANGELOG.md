@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.2.1] - 2026-06-03
+
+### Features
+- **Wide Mode** — toggle in Options → Appearance. Removes claude.ai's side margins so the conversation and input area span the full browser width. Applied via `body[data-ct-wide]` attribute; updates live when toggled (no page reload needed for already-open tabs if content script is active, otherwise reload applies it).
+
 ## [1.2.0] - 2026-06-03
 
 ### Features

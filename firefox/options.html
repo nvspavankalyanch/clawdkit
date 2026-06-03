@@ -181,6 +181,22 @@
 
     .link-row { font-size: 13px; color: var(--ink-2); line-height: 1.7; }
     .link-row a { color: var(--accent-deep); text-decoration: none; border-bottom: 1px solid var(--accent-soft); }
+
+    /* Toggle switch */
+    .tog { position: relative; display: inline-block; width: 44px; height: 24px; flex: none; }
+    .tog input { opacity: 0; width: 0; height: 0; position: absolute; }
+    .tog-track {
+      position: absolute; inset: 0; border-radius: 999px;
+      background: var(--surface-3); border: 1px solid var(--line-2);
+      cursor: pointer; transition: background .2s, border-color .2s;
+    }
+    .tog input:checked + .tog-track { background: var(--accent); border-color: var(--accent); }
+    .tog-track::after {
+      content: ''; position: absolute; width: 18px; height: 18px;
+      left: 2px; top: 2px; border-radius: 50%;
+      background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.25); transition: transform .2s;
+    }
+    .tog input:checked + .tog-track::after { transform: translateX(20px); }
   </style>
 </head>
 <body>
@@ -317,6 +333,29 @@
             </div>
           </div>
           <div id="dateTimeStatus" class="status" style="margin: 0 22px 16px;"></div>
+        </div>
+      </div>
+
+      <!-- Appearance -->
+      <div class="section">
+        <div class="sec-head">
+          <span class="sec-title">Appearance</span>
+          <span class="sec-desc">Customise how Claude.ai looks.</span>
+        </div>
+        <div class="panel">
+          <div class="row">
+            <div class="row-l">
+              <div class="row-name">Wide Mode</div>
+              <div class="row-help">Removes claude.ai's side margins so the conversation and input area fill the full browser width. Useful on wide monitors and for long code blocks.</div>
+            </div>
+            <div class="row-r" style="justify-content: center; padding-top: 2px;">
+              <label class="tog">
+                <input type="checkbox" id="wideModeToggle">
+                <span class="tog-track"></span>
+              </label>
+            </div>
+          </div>
+          <div id="appearanceStatus" class="status" style="margin: 0 22px 16px;"></div>
         </div>
       </div>
 

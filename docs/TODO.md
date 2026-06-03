@@ -157,6 +157,12 @@
 
 ## Completed ✅
 
+- **Wide Mode** (v1.2.1)
+  - Toggle in Options → Appearance removes claude.ai's conversation and input max-width constraints
+  - CSS targets `[data-testid="chat-input-grid-container"]`, `[data-testid="conversation-turn-wrapper"]`, and `main .mx-auto`
+  - Applied via `body[data-ct-wide]` attribute; `storage.onChanged` updates live when toggled from options
+  - Chrome + Firefox parity; preference stored in `chrome.storage.local.wideMode`
+
 - **Obsidian-ready export** (v1.2.0)
   - "Obsidian" format option added to popup, browse page, and all export paths (Export Current, Export All, bulk browse export)
   - Exports standard Markdown with YAML frontmatter: `title`, `date`, `model`, `source`, `tags`
