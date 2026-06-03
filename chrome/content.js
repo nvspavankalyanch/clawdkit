@@ -724,6 +724,121 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
   });
 
+// === Keyboard Shortcuts ===
+
+// Brief on-page toast used for keyboard shortcut feedback.
+function showCtToast(message, duration = 2500) {
+  let toast = document.getElementById('ct-toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'ct-toast';
+    Object.assign(toast.style, {
+      position: 'fixed', bottom: '24px', left: '50%', transform: 'translateX(-50%)',
+      background: 'rgba(30,24,18,.92)', color: '#f2ece2',
+      fontSize: '13px', fontWeight: '500', fontFamily: 'system-ui,sans-serif',
+      padding: '9px 18px', borderRadius: '10px', zIndex: '9999',
+      boxShadow: '0 4px 20px rgba(0,0,0,.3)',
+      pointerEvents: 'none', opacity: '0', transition: 'opacity .15s',
+    });
+    document.body.appendChild(toast);
+  }
+  toast.textContent = message;
+  toast.style.opacity = '1';
+  clearTimeout(toast._timeout);
+  toast._timeout = setTimeout(() => { toast.style.opacity = '0'; }, duration);
+}
+
+// Alt+E: exports the current conversation as Markdown with default settings.
+async function quickExportCurrent() {
+  const conversationId = location.pathname.match(/\/chat\/([^/?]+)/)?.[1];
+  if (!conversationId) { showCtToast('No conversation open'); return; }
+
+  showCtToast('Exporting…');
+  try {
+    const orgResp = await fetch('https://claude.ai/api/organizations', {
+      credentials: 'include', headers: { Accept: 'application/json' }
+    });
+    if (!orgResp.ok) throw new Error('Auth error — make sure you are logged in to claude.ai');
+    const orgs = await orgResp.json();
+    const org = orgs.find(o => Array.isArray(o.capabilities) && o.capabilities.includes('chat')) || orgs[0];
+    if (!org?.uuid) throw new Error('Could not detect org ID');
+
+    const data = await fetchConversation(org.uuid, conversationId);
+    data.model = inferModel(data);
+    downloadFile(
+      convertToMarkdown(data, false, conversationId, true, false),
+      `${data.name || conversationId}.md`,
+      'text/markdown'
+    );
+    recordExportTimestamp(conversationId);
+    showCtToast('Exported ✓');
+  } catch (err) {
+    showCtToast('Export failed: ' + err.message);
+  }
+}
+
+// Install/re-install the keydown listener. Called on init and whenever settings change.
+// Stored on window so it can be cleanly removed before re-registering.
+function initKeyboardShortcuts(shortcuts) {
+  if (window._ctKbListener) {
+    document.removeEventListener('keydown', window._ctKbListener, true);
+  }
+
+  window._ctKbListener = function(e) {
+    // Alt+E — quick export (always active)
+    if (e.altKey && !e.ctrlKey && !e.shiftKey && !e.metaKey && (e.key === 'e' || e.key === 'E')) {
+      e.preventDefault();
+      quickExportCurrent();
+      return;
+    }
+
+    // Alt+B — open browse page (always active)
+    if (e.altKey && !e.ctrlKey && !e.shiftKey && !e.metaKey && (e.key === 'b' || e.key === 'B')) {
+      e.preventDefault();
+      window.open(chrome.runtime.getURL('browse.html'), '_blank');
+      return;
+    }
+
+    // Enter/Ctrl+Enter swap — only when enterBehavior === 'ctrlEnter'
+    if (!shortcuts || shortcuts.enterBehavior !== 'ctrlEnter') return;
+
+    const editor = document.querySelector('[contenteditable="true"][data-placeholder]') ||
+                   document.querySelector('[contenteditable="true"][role="textbox"]');
+    if (!editor || (!editor.contains(e.target) && e.target !== editor)) return;
+
+    if (e.key === 'Enter' && !e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) {
+      // Enter → insert newline (don't send)
+      e.preventDefault();
+      e.stopPropagation();
+      document.execCommand('insertText', false, '\n');
+      return;
+    }
+
+    if (e.key === 'Enter' && e.ctrlKey && !e.shiftKey) {
+      // Ctrl+Enter → send
+      e.preventDefault();
+      e.stopPropagation();
+      const sendBtn = document.querySelector('[data-testid="send-button"]') ||
+                     document.querySelector('button[aria-label="Send Message"]') ||
+                     document.querySelector('button[aria-label="Send message"]');
+      if (sendBtn) sendBtn.click();
+    }
+  };
+
+  document.addEventListener('keydown', window._ctKbListener, true);
+}
+
+chrome.storage.sync.get(['keyboardShortcuts'], (result) => {
+  initKeyboardShortcuts(result.keyboardShortcuts || {});
+});
+
+// Re-init when settings change (e.g. user toggles Ctrl+Enter in options)
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'sync' && 'keyboardShortcuts' in changes) {
+    initKeyboardShortcuts(changes.keyboardShortcuts.newValue || {});
+  }
+});
+
 // === Full-Width Mode ===
 // Reads wideMode from storage and toggles data-ct-wide on document.body.
 // CSS in content.css removes claude.ai's max-width constraints when this attribute is present.

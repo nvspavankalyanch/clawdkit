@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.2] - 2026-06-03
+
+### Features
+- **Keyboard shortcuts** — always-active on claude.ai tabs:
+  - `Alt+E` — export current conversation as Markdown (shows an on-page toast with result)
+  - `Alt+B` — open Browse page in a new tab
+- **Ctrl+Enter to send** — toggle in Options → Keyboard. When on, Enter inserts a newline and Ctrl+Enter sends; Shift+Enter always inserts a newline. Live-updating via `storage.onChanged`.
+
 ## [1.2.1] - 2026-06-03
 
 ### Features

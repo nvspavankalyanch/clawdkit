@@ -157,6 +157,13 @@
 
 ## Completed ✅
 
+- **Keyboard shortcuts** (v1.2.2)
+  - `Alt+E`: quick export current conversation as Markdown; on-page toast shows result
+  - `Alt+B`: open Browse page in a new tab
+  - **Ctrl+Enter to send** toggle in Options → Keyboard (`chrome.storage.sync.keyboardShortcuts.enterBehavior`)
+  - Enter/Ctrl+Enter swap uses `execCommand('insertText', '\n')` for newline in contenteditable editor; `[data-testid="send-button"]` click to send
+  - `initKeyboardShortcuts()` in content.js; listener stored on `window._ctKbListener` for clean re-registration on settings change
+
 - **Wide Mode** (v1.2.1)
   - Toggle in Options → Appearance removes claude.ai's conversation and input max-width constraints
   - CSS targets `[data-testid="chat-input-grid-container"]`, `[data-testid="conversation-turn-wrapper"]`, and `main .mx-auto`

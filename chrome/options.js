@@ -119,6 +119,28 @@ document.getElementById('timeFormatSelect').addEventListener('change', (e) => {
   });
 });
 
+// Ctrl+Enter to send toggle
+function loadCtrlEnterPref() {
+  chrome.storage.sync.get(['keyboardShortcuts'], (result) => {
+    const ks = result.keyboardShortcuts || {};
+    document.getElementById('ctrlEnterToggle').checked = ks.enterBehavior === 'ctrlEnter';
+  });
+}
+loadCtrlEnterPref();
+
+document.getElementById('ctrlEnterToggle').addEventListener('change', (e) => {
+  const enterBehavior = e.target.checked ? 'ctrlEnter' : 'default';
+  chrome.storage.sync.get(['keyboardShortcuts'], (result) => {
+    const ks = Object.assign({}, result.keyboardShortcuts || {}, { enterBehavior });
+    chrome.storage.sync.set({ keyboardShortcuts: ks }, () => {
+      showStatus('keyboardStatus', e.target.checked
+        ? 'Ctrl+Enter to send enabled. Takes effect immediately on open claude.ai tabs.'
+        : 'Reverted to Enter to send (claude.ai default).', 'success');
+      setTimeout(() => hideStatus('keyboardStatus'), 3500);
+    });
+  });
+});
+
 // Wide Mode toggle
 function loadWideModePref() {
   chrome.storage.local.get(['wideMode'], (result) => {
