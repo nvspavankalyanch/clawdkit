@@ -268,6 +268,76 @@
       display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
     }
     .search-snippet mark { background: var(--accent-soft); color: var(--accent-deep); border-radius: 2px; padding: 0 2px; }
+
+    /* ===== Folders ===== */
+    .nav-h-folders {
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .nav-add-btn {
+      background: none; border: none; color: #7E7263; cursor: pointer;
+      font-size: 17px; line-height: 1; padding: 0 2px; border-radius: 4px;
+      transition: .13s; font-family: var(--ui);
+    }
+    .nav-add-btn:hover { color: #C7BFB2; background: rgba(255,255,255,.07); }
+    #foldersList { display: flex; flex-direction: column; gap: 1px; margin-bottom: 6px; overflow-y: auto; max-height: 220px; }
+    .folder-item {
+      display: flex; align-items: center; gap: 8px; padding: 7px 11px;
+      border-radius: 8px; cursor: pointer; color: #C7BFB2; font-size: 13px; font-weight: 500;
+      transition: .13s; position: relative;
+    }
+    .folder-item:hover { background: rgba(255,255,255,.05); color: #F2ECE2; }
+    .folder-item.active { background: rgba(255,255,255,.09); color: #F2ECE2; }
+    .folder-item.drag-over { background: rgba(255,255,255,.13); outline: 2px dashed rgba(255,255,255,.3); outline-offset: -2px; }
+    .folder-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+    .folder-dot-sm { display: inline-block; width: 7px; height: 7px; border-radius: 50%; flex: none; margin-right: 2px; vertical-align: middle; }
+    .folder-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .folder-count { font-family: var(--mono); font-size: 10.5px; opacity: .6; }
+    .folder-actions { display: none; gap: 2px; }
+    .folder-item:hover .folder-actions { display: flex; }
+    .folder-actions button {
+      background: none; border: none; color: #9C9081; cursor: pointer; padding: 2px 4px;
+      font-size: 12px; border-radius: 3px; line-height: 1; transition: .12s; font-family: var(--ui);
+    }
+    .folder-actions button:hover { color: #F2ECE2; background: rgba(255,255,255,.1); }
+    .folder-unfiled { opacity: .6; }
+    .folder-unfiled:hover { opacity: 1; }
+    /* New folder input row */
+    .folder-new-input-row { padding: 6px 8px; }
+    .folder-color-swatches { display: flex; gap: 5px; margin-bottom: 6px; }
+    .folder-swatch {
+      width: 16px; height: 16px; border-radius: 50%; border: 2px solid transparent;
+      cursor: pointer; padding: 0; flex: none; transition: .12s;
+    }
+    .folder-swatch.selected { border-color: #fff; }
+    .folder-new-input-wrap { display: flex; }
+    .folder-new-input {
+      width: 100%; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.15);
+      border-radius: 7px; padding: 6px 9px; color: #F2ECE2; font-family: var(--ui); font-size: 12.5px;
+      outline: none;
+    }
+    .folder-new-input:focus { border-color: var(--accent); }
+    .folder-new-input::placeholder { color: #7E7263; }
+    /* Row drag state */
+    tr.dragging { opacity: .5; }
+    /* Folder assign dropdown (top-actions) */
+    .folder-assign-wrapper {
+      position: relative; align-items: center;
+    }
+    .folder-assign-wrapper .btn { position: relative; }
+    .folder-assign-dropdown {
+      display: none; position: absolute; top: calc(100% + 4px); right: 0;
+      background: var(--surface); border: 1px solid var(--line);
+      border-radius: 11px; min-width: 210px; z-index: 1000; padding: 4px;
+      box-shadow: 0 4px 16px rgba(40,30,20,.15);
+    }
+    .folder-assign-wrapper.open .folder-assign-dropdown { display: block; }
+    .folder-assign-option {
+      display: flex; align-items: center; gap: 9px; padding: 9px 11px;
+      border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--ink);
+      font-weight: 500; transition: .12s;
+    }
+    .folder-assign-option:hover { background: var(--surface-2); }
+    .folder-assign-unfiled { color: var(--ink-3); }
     .vis-filters {
       display: flex; gap: 3px; background: var(--surface-2); border: 1px solid var(--line);
       border-radius: 11px; padding: 3px;
@@ -451,6 +521,11 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.1 8.3 22 9.3 17 14.1 18.2 21 12 17.8 5.8 21 7 14.1 2 9.3 8.9 8.3 12 2"/></svg>
         Bookmarks <span class="ct" id="nav-bm-count"></span>
       </a>
+      <div class="nav-h nav-h-folders">
+        Folders
+        <button id="newFolderBtn" class="nav-add-btn" title="New folder">+</button>
+      </div>
+      <div id="foldersList"></div>
       <div class="nav-h">Options</div>
       <a href="#" id="nav-export-opts">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
@@ -545,6 +620,10 @@
           </div>
         </div>
         <div class="top-actions">
+          <div class="folder-assign-wrapper" id="folderAssignWrapper" style="display:none">
+            <button class="btn btn-ghost" id="folderAssignBtn">Move to folder ▾</button>
+            <div class="folder-assign-dropdown" id="folderAssignDropdown"></div>
+          </div>
           <button class="btn btn-ghost" id="exportOptionsToggle">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
             Export options

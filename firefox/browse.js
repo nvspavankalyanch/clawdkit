@@ -111,6 +111,278 @@ let modelDisplay = 'original'; // 'original' (first-seen) or 'current'
 const PDF_BROWSE_BULK_EXPORT_MESSAGE = 'PDF export works one conversation at a time. Use a row Export button, or choose another format for bulk export.';
 
 // ─────────────────────────────────────────────────────────────────────────
+// Folder organization state
+// ─────────────────────────────────────────────────────────────────────────
+let folderData = {};              // { [folderId]: { id, name, color, order, parentId } }
+let conversationFolders = {};     // { [convUuid]: folderId }
+let activeFolderId = null;        // null = no folder filter; '__unfiled__' = show unfiled
+
+const FOLDER_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#6b7280'];
+
+// ─────────────────────────────────────────────────────────────────────────
+// Folder functions
+// ─────────────────────────────────────────────────────────────────────────
+
+async function loadFolderData() {
+  return new Promise(resolve => {
+    chrome.storage.local.get(['folders', 'conversationFolders'], r => {
+      folderData = r.folders || {};
+      conversationFolders = r.conversationFolders || {};
+      resolve();
+    });
+  });
+}
+
+async function saveFolderData() {
+  return new Promise(resolve => {
+    chrome.storage.local.set({ folders: folderData, conversationFolders }, resolve);
+  });
+}
+
+function getSortedFolders() {
+  return Object.values(folderData).sort((a, b) => a.order - b.order);
+}
+
+function getFolderConversationCount(folderId) {
+  if (folderId === '__unfiled__') {
+    return allConversations.filter(c => !conversationFolders[c.uuid]).length;
+  }
+  return allConversations.filter(c => conversationFolders[c.uuid] === folderId).length;
+}
+
+async function createFolder(name, color) {
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const order = Object.keys(folderData).length;
+  folderData[id] = { id, name: name.trim(), color, order, parentId: null };
+  await saveFolderData();
+  renderFoldersList();
+  return folderData[id];
+}
+
+async function renameFolder(id, newName) {
+  if (!folderData[id]) return;
+  folderData[id].name = newName.trim();
+  await saveFolderData();
+  renderFoldersList();
+}
+
+async function deleteFolder(id) {
+  if (!folderData[id]) return;
+  // Unassign all conversations in this folder
+  for (const uuid of Object.keys(conversationFolders)) {
+    if (conversationFolders[uuid] === id) delete conversationFolders[uuid];
+  }
+  delete folderData[id];
+  // Renumber orders
+  getSortedFolders().forEach((f, i) => { folderData[f.id].order = i; });
+  if (activeFolderId === id) {
+    activeFolderId = null;
+    setActiveNavItem(document.getElementById('nav-all'));
+  }
+  await saveFolderData();
+  renderFoldersList();
+  applyFiltersAndSort();
+}
+
+async function assignConversationToFolder(uuid, folderId) {
+  if (folderId === '__unfiled__') {
+    delete conversationFolders[uuid];
+  } else {
+    conversationFolders[uuid] = folderId;
+  }
+  await saveFolderData();
+  renderFoldersList();
+  displayConversations();
+}
+
+async function assignSelectedToFolder(folderId) {
+  for (const uuid of selectedConversations) {
+    if (folderId === '__unfiled__') {
+      delete conversationFolders[uuid];
+    } else {
+      conversationFolders[uuid] = folderId;
+    }
+  }
+  await saveFolderData();
+  renderFoldersList();
+  displayConversations();
+  showToast(`Moved ${selectedConversations.size} conversation${selectedConversations.size !== 1 ? 's' : ''} to folder`);
+}
+
+async function reorderFolder(id, direction) {
+  const sorted = getSortedFolders();
+  const idx = sorted.findIndex(f => f.id === id);
+  const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+  if (swapIdx < 0 || swapIdx >= sorted.length) return;
+  // Swap orders
+  const tmp = sorted[idx].order;
+  folderData[sorted[idx].id].order = sorted[swapIdx].order;
+  folderData[sorted[swapIdx].id].order = tmp;
+  await saveFolderData();
+  renderFoldersList();
+}
+
+function renderFoldersList() {
+  const list = document.getElementById('foldersList');
+  if (!list) return;
+  const sorted = getSortedFolders();
+
+  let html = '';
+  sorted.forEach(folder => {
+    const count = getFolderConversationCount(folder.id);
+    const isActive = activeFolderId === folder.id;
+    html += `
+      <div class="folder-item${isActive ? ' active' : ''}" data-id="${escapeHtml(folder.id)}" draggable="false">
+        <span class="folder-dot" style="background:${escapeHtml(folder.color)}"></span>
+        <span class="folder-name">${escapeHtml(folder.name)}</span>
+        <span class="folder-count ct">${count || ''}</span>
+        <div class="folder-actions">
+          <button class="folder-up-btn" data-id="${escapeHtml(folder.id)}" title="Move up">↑</button>
+          <button class="folder-dn-btn" data-id="${escapeHtml(folder.id)}" title="Move down">↓</button>
+          <button class="folder-del-btn" data-id="${escapeHtml(folder.id)}" title="Delete folder">×</button>
+        </div>
+      </div>`;
+  });
+
+  // Unfiled virtual folder
+  const unfiledCount = getFolderConversationCount('__unfiled__');
+  const unfiledActive = activeFolderId === '__unfiled__';
+  html += `
+    <div class="folder-item folder-unfiled${unfiledActive ? ' active' : ''}" data-id="__unfiled__">
+      <span class="folder-dot" style="background:#9ca3af"></span>
+      <span class="folder-name">Unfiled</span>
+      <span class="folder-count ct">${unfiledCount || ''}</span>
+    </div>`;
+
+  list.innerHTML = html;
+
+  // Wire up folder item clicks (filter)
+  list.querySelectorAll('.folder-item').forEach(el => {
+    el.addEventListener('click', (e) => {
+      if (e.target.closest('.folder-actions')) return; // ignore action buttons
+      const fid = el.dataset.id;
+      if (activeFolderId === fid) {
+        activeFolderId = null;
+        el.classList.remove('active');
+        setActiveNavItem(document.getElementById('nav-all'));
+      } else {
+        activeFolderId = fid;
+        setActiveNavItem(null); // deactivate nav items
+        list.querySelectorAll('.folder-item').forEach(f => f.classList.remove('active'));
+        el.classList.add('active');
+      }
+      applyFiltersAndSort();
+    });
+
+    // Drag-and-drop: folder items are drop targets for table rows
+    el.addEventListener('dragover', e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      el.classList.add('drag-over');
+    });
+    el.addEventListener('dragleave', () => el.classList.remove('drag-over'));
+    el.addEventListener('drop', e => {
+      e.preventDefault();
+      el.classList.remove('drag-over');
+      const uuid = e.dataTransfer.getData('text/plain');
+      if (uuid) assignConversationToFolder(uuid, el.dataset.id);
+    });
+  });
+
+  // Reorder buttons
+  list.querySelectorAll('.folder-up-btn').forEach(btn => {
+    btn.addEventListener('click', e => { e.stopPropagation(); reorderFolder(btn.dataset.id, 'up'); });
+  });
+  list.querySelectorAll('.folder-dn-btn').forEach(btn => {
+    btn.addEventListener('click', e => { e.stopPropagation(); reorderFolder(btn.dataset.id, 'down'); });
+  });
+
+  // Delete buttons
+  list.querySelectorAll('.folder-del-btn').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      const f = folderData[btn.dataset.id];
+      if (f && confirm(`Delete folder "${f.name}"? Conversations will not be deleted.`)) {
+        deleteFolder(btn.dataset.id);
+      }
+    });
+  });
+
+  // Update folder assign dropdown if open
+  renderFolderAssignDropdown();
+}
+
+function renderFolderAssignDropdown() {
+  const dropdown = document.getElementById('folderAssignDropdown');
+  if (!dropdown) return;
+  const sorted = getSortedFolders();
+  let html = '';
+  sorted.forEach(f => {
+    html += `<div class="folder-assign-option" data-id="${escapeHtml(f.id)}">
+      <span class="folder-dot" style="background:${escapeHtml(f.color)}"></span>
+      ${escapeHtml(f.name)}
+    </div>`;
+  });
+  html += `<div class="folder-assign-option folder-assign-unfiled" data-id="__unfiled__">
+    <span class="folder-dot" style="background:#9ca3af"></span>Unfiled (remove from folder)
+  </div>`;
+  dropdown.innerHTML = html;
+  dropdown.querySelectorAll('.folder-assign-option').forEach(opt => {
+    opt.addEventListener('click', e => {
+      e.stopPropagation();
+      assignSelectedToFolder(opt.dataset.id);
+      document.getElementById('folderAssignWrapper').classList.remove('open');
+    });
+  });
+}
+
+function showNewFolderInput() {
+  const list = document.getElementById('foldersList');
+  if (!list || list.querySelector('.folder-new-input-row')) return;
+
+  let selectedColor = FOLDER_COLORS[0];
+  const row = document.createElement('div');
+  row.className = 'folder-new-input-row';
+  row.innerHTML = `
+    <div class="folder-color-swatches">
+      ${FOLDER_COLORS.map((c, i) => `<button class="folder-swatch${i === 0 ? ' selected' : ''}" data-color="${c}" style="background:${c}" title="${c}"></button>`).join('')}
+    </div>
+    <div class="folder-new-input-wrap">
+      <input class="folder-new-input" type="text" placeholder="Folder name…" maxlength="40">
+    </div>`;
+  list.appendChild(row);
+
+  const input = row.querySelector('.folder-new-input');
+  input.focus();
+
+  row.querySelectorAll('.folder-swatch').forEach(swatch => {
+    swatch.addEventListener('click', e => {
+      e.stopPropagation();
+      row.querySelectorAll('.folder-swatch').forEach(s => s.classList.remove('selected'));
+      swatch.classList.add('selected');
+      selectedColor = swatch.dataset.color;
+    });
+  });
+
+  async function confirmCreate() {
+    const name = input.value.trim();
+    if (name) await createFolder(name, selectedColor);
+    else row.remove();
+  }
+
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') confirmCreate();
+    else if (e.key === 'Escape') row.remove();
+  });
+  input.addEventListener('blur', () => setTimeout(() => { if (row.parentNode) row.remove(); }, 150));
+}
+
+function setActiveNavItem(el) {
+  document.querySelectorAll('.nav a').forEach(a => a.classList.remove('on'));
+  if (el) el.classList.add('on');
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Full-text search state (IndexedDB-backed)
 // ─────────────────────────────────────────────────────────────────────────
 let searchContentMode = false;    // title-only vs title+message-content
@@ -499,6 +771,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadModelSnapshots();
   await loadDateTimePrefs();
   await loadModelDisplayPref();
+  await loadFolderData();
+  renderFoldersList();
   // Initialise bookmark count badge
   chrome.storage.local.get(['bookmarks'], r => {
     const count = Object.keys(r.bookmarks || {}).length;
@@ -667,7 +941,17 @@ function applyFiltersAndSort() {
       matchesContent = contentSearchResults !== null && contentSearchResults.has(conv.uuid);
     }
 
-    return matchesSearch && matchesStatus && matchesContent;
+    // Folder filter
+    let matchesFolder = true;
+    if (activeFolderId !== null) {
+      if (activeFolderId === '__unfiled__') {
+        matchesFolder = !conversationFolders[conv.uuid];
+      } else {
+        matchesFolder = conversationFolders[conv.uuid] === activeFolderId;
+      }
+    }
+
+    return matchesSearch && matchesStatus && matchesContent && matchesFolder;
   });
 
   // Sort conversations
@@ -818,11 +1102,14 @@ function displayConversations() {
 
     const newUpdated = isNewOrUpdated(conv);
     const snippet = (searchContentMode && contentSearchResults) ? contentSearchResults.get(conv.uuid) : null;
+    const convFolderId = conversationFolders[conv.uuid];
+    const convFolder = convFolderId ? folderData[convFolderId] : null;
     html += `
-      <tr data-id="${escapeHtml(conv.uuid)}">
+      <tr data-id="${escapeHtml(conv.uuid)}" draggable="true">
         <td>
           <div class="conversation-name">
             ${newUpdated ? '<span class="new-dot" title="New or updated since last export"></span>' : ''}
+            ${convFolder ? `<span class="folder-dot-sm" style="background:${escapeHtml(convFolder.color)}" title="Folder: ${escapeHtml(convFolder.name)}"></span>` : ''}
             <a href="https://claude.ai/chat/${escapeHtml(conv.uuid)}" target="_blank" title="${escapeHtml(conv.name)}">
               ${escapeHtml(conv.name)}
             </a>
@@ -860,7 +1147,17 @@ function displayConversations() {
   // Security: All user-provided data in html has been sanitized with escapeHtml()
   // before concatenation. The HTML structure itself is static/trusted template code.
   tableContent.innerHTML = html;
-  
+
+  // Drag-and-drop: table rows are drag sources for folder assignment
+  document.querySelectorAll('tbody tr[data-id]').forEach(row => {
+    row.addEventListener('dragstart', e => {
+      e.dataTransfer.setData('text/plain', row.dataset.id);
+      e.dataTransfer.effectAllowed = 'move';
+      row.classList.add('dragging');
+    });
+    row.addEventListener('dragend', () => row.classList.remove('dragging'));
+  });
+
   // Add export button listeners
   document.querySelectorAll('.btn-export').forEach(btn => {
     btn.addEventListener('click', (e) => {
@@ -1009,6 +1306,13 @@ function updateExportButtonText() {
     exportBtn.textContent = `Export Selected (${selectedConversations.size})`;
   } else {
     exportBtn.textContent = 'Export All';
+  }
+
+  // Show "Move to folder" button when conversations are selected and folders exist
+  const assignWrapper = document.getElementById('folderAssignWrapper');
+  if (assignWrapper) {
+    const hasFolders = Object.keys(folderData).length > 0;
+    assignWrapper.style.display = (selectedConversations.size > 0 && hasFolders) ? 'flex' : 'none';
   }
 }
 
@@ -2216,9 +2520,47 @@ function setupEventListeners() {
   if (navBookmarks) {
     navBookmarks.addEventListener('click', e => {
       e.preventDefault();
+      // Clear folder filter when switching to bookmarks view
+      activeFolderId = null;
+      renderFoldersList();
       showBookmarksView();
     });
   }
+
+  // New folder button
+  const newFolderBtn = document.getElementById('newFolderBtn');
+  if (newFolderBtn) {
+    newFolderBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      showNewFolderInput();
+    });
+  }
+
+  // Folder assign dropdown (bulk "Move to folder")
+  const folderAssignWrapper = document.getElementById('folderAssignWrapper');
+  const folderAssignBtn = document.getElementById('folderAssignBtn');
+  const folderAssignDropdown = document.getElementById('folderAssignDropdown');
+  if (folderAssignBtn) {
+    folderAssignBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      renderFolderAssignDropdown();
+      folderAssignWrapper.classList.toggle('open');
+    });
+    folderAssignDropdown.addEventListener('click', e => e.stopPropagation());
+    document.addEventListener('click', () => {
+      if (folderAssignWrapper) folderAssignWrapper.classList.remove('open');
+    });
+  }
+
+  // Clear folder filter when clicking the main nav items
+  document.getElementById('nav-all').addEventListener('click', () => {
+    activeFolderId = null;
+    renderFoldersList();
+  });
+  document.getElementById('nav-exported').addEventListener('click', () => {
+    activeFolderId = null;
+    renderFoldersList();
+  });
 
   // Refresh bookmark count badge when storage changes (e.g. starred from claude.ai tab)
   chrome.storage.onChanged.addListener((changes, area) => {
