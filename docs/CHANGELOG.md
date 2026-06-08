@@ -1,9 +1,18 @@
 # Changelog
 
+## [1.4.0] - 2026-06-08
+
+- **Folder Organization** — color-coded folders in the browse page sidebar; drag conversation rows onto folders to assign them; click a folder to filter the table; bulk-assign selected conversations via "Move to folder" dropdown; "Unfiled" virtual folder; folder data stored in chrome.storage.local and included in Backup/Restore
+
+## [1.3.0] - 2026-06-08
+
+- **Full-Text Search** — search message content (not just titles) via IndexedDB; text indexed automatically on every export; "Build full index" action indexes all conversations; content search mode toggle in the search box; matching conversations show a highlighted snippet; index coverage shown in the banner and settings dropdown
+
 ## [1.2.11] - 2026-06-03
 
 ### Fixes
-- **PDF lost all styling when printing/saving** — the preview rendered the full formatted UI (shaded code blocks, bordered artifacts, theme background) but the printed/saved PDF came out as plain text. Browsers suppress background colors when printing unless `print-color-adjust: exact` is set, so every shaded box collapsed away. The `@media print` block now (a) forces the light "paper" palette regardless of the viewer's dark mode and (b) enables `print-color-adjust: exact`, so code blocks, artifacts and other UI survive into the PDF.
+- **PDF export theme and print styling** — removed the image-backed direct PDF renderer after browsers blocked canvas export with `Tainted canvases may not be exported`. PDF export now opens the styled print page again, passes the selected Light/Dark theme explicitly, and draws a printable SVG page background with zero print margins so the saved PDF can match the dark preview instead of collapsing to plain text.
+- **PDF bulk export guardrails** — PDF is now blocked earlier for Export All and Browse bulk-selection flows, while single-conversation PDF export remains available from Export Current and per-row Browse exports.
 
 ## [1.2.10] - 2026-06-03
 
