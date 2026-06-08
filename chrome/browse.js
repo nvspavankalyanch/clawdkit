@@ -84,6 +84,14 @@ function toggleTheme() {
   localStorage.setItem('theme', newTheme);
 }
 
+function getCurrentExportTheme() {
+  const attrTheme = document.documentElement.getAttribute('data-theme');
+  if (attrTheme === 'dark' || attrTheme === 'light') return attrTheme;
+  const savedTheme = localStorage.getItem('theme');
+  if (savedTheme === 'dark' || savedTheme === 'light') return savedTheme;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
 // State management
 let allConversations = [];
 let filteredConversations = [];
@@ -100,6 +108,176 @@ let statusFilter = 'all'; // 'all', 'new', 'exported', or 'projects' (search sco
 let dateFormat = 'mdy'; // 'mdy' or 'dmy'
 let timeFormat = '12h'; // '12h' or '24h'
 let modelDisplay = 'original'; // 'original' (first-seen) or 'current'
+const PDF_BROWSE_BULK_EXPORT_MESSAGE = 'PDF export works one conversation at a time. Use a row Export button, or choose another format for bulk export.';
+
+// ─────────────────────────────────────────────────────────────────────────
+// Full-text search state (IndexedDB-backed)
+// ─────────────────────────────────────────────────────────────────────────
+let searchContentMode = false;    // title-only vs title+message-content
+let contentSearchResults = null;  // Map<uuid, snippet> when results are ready, null while loading
+let _contentSearchTimer = null;   // debounce handle
+
+// ─────────────────────────────────────────────────────────────────────────
+// Full-text search — IndexedDB functions
+// ─────────────────────────────────────────────────────────────────────────
+
+function openSearchDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('clawdkit-fts', 1);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains('conversations')) {
+        db.createObjectStore('conversations', { keyPath: 'uuid' });
+      }
+    };
+    req.onsuccess = (e) => resolve(e.target.result);
+    req.onerror = (e) => reject(e.target.error);
+  });
+}
+
+function extractPlainText(data) {
+  const branch = getCurrentBranch(data);
+  const parts = [];
+  for (const msg of branch) {
+    if (Array.isArray(msg.content)) {
+      for (const block of msg.content) {
+        if (block.type === 'text' && block.text) parts.push(block.text.trim());
+      }
+    } else if (msg.text) {
+      parts.push(msg.text.trim());
+    }
+  }
+  return parts.join('\n\n');
+}
+
+async function indexConversationText(data) {
+  if (!data || !data.uuid) return;
+  const text = extractPlainText(data);
+  if (!text) return;
+  const db = await openSearchDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('conversations', 'readwrite');
+    const store = tx.objectStore('conversations');
+    const req = store.put({ uuid: data.uuid, textContent: text, indexedAt: new Date().toISOString() });
+    req.onsuccess = () => resolve();
+    req.onerror = (e) => reject(e.target.error);
+  });
+}
+
+async function searchConversationIndex(term) {
+  const results = new Map();
+  if (!term) return results;
+  const lowerTerm = term.toLowerCase();
+  const db = await openSearchDB();
+  return new Promise((resolve) => {
+    const tx = db.transaction('conversations', 'readonly');
+    const store = tx.objectStore('conversations');
+    const req = store.openCursor();
+    req.onsuccess = (e) => {
+      const cursor = e.target.result;
+      if (!cursor) { resolve(results); return; }
+      const { uuid, textContent } = cursor.value;
+      const lowerContent = textContent.toLowerCase();
+      const idx = lowerContent.indexOf(lowerTerm);
+      if (idx !== -1) {
+        const start = Math.max(0, idx - 60);
+        const end = Math.min(textContent.length, idx + lowerTerm.length + 60);
+        const before = escapeHtml((start > 0 ? '…' : '') + textContent.slice(start, idx));
+        const matched = escapeHtml(textContent.slice(idx, idx + lowerTerm.length));
+        const after = escapeHtml(textContent.slice(idx + lowerTerm.length, end) + (end < textContent.length ? '…' : ''));
+        results.set(uuid, `${before}<mark>${matched}</mark>${after}`);
+      }
+      cursor.continue();
+    };
+    req.onerror = () => resolve(results);
+  });
+}
+
+async function getSearchIndexStats() {
+  try {
+    const db = await openSearchDB();
+    return new Promise((resolve) => {
+      const tx = db.transaction('conversations', 'readonly');
+      const store = tx.objectStore('conversations');
+      const req = store.count();
+      req.onsuccess = () => resolve({ indexed: req.result });
+      req.onerror = () => resolve({ indexed: 0 });
+    });
+  } catch (e) {
+    return { indexed: 0 };
+  }
+}
+
+function updateSearchIndexDisplay(count) {
+  const statsEl = document.getElementById('searchIndexStats');
+  if (statsEl) statsEl.textContent = `${count} conversation${count !== 1 ? 's' : ''} indexed`;
+  const countEl = document.getElementById('searchIndexCount');
+  if (countEl) countEl.textContent = count;
+}
+
+async function buildFullSearchIndex() {
+  if (!orgId) { showToast('No org ID — open a claude.ai tab first', true); return; }
+  const conversations = allConversations;
+  if (!conversations.length) { showToast('No conversations loaded', true); return; }
+
+  const progressModal = document.getElementById('progressModal');
+  const progressBar = document.getElementById('progressBar');
+  const progressText = document.getElementById('progressText');
+  const progressStats = document.getElementById('progressStats');
+  progressModal.style.display = 'block';
+  progressText.textContent = 'Building search index…';
+  progressBar.style.width = '0%';
+  progressStats.textContent = '';
+
+  let cancelled = false;
+  const cancelBtn = document.getElementById('cancelExport');
+  cancelBtn.onclick = () => { cancelled = true; progressModal.style.display = 'none'; showToast('Index build cancelled'); };
+
+  let indexed = 0, failed = 0;
+  for (let i = 0; i < conversations.length; i++) {
+    if (cancelled) break;
+    const conv = conversations[i];
+    progressText.textContent = `Indexing: ${conv.name}`;
+    progressBar.style.width = `${Math.round(((i + 1) / conversations.length) * 100)}%`;
+    progressStats.textContent = `${i + 1} / ${conversations.length}`;
+    try {
+      const res = await fetch(
+        `https://claude.ai/api/organizations/${orgId}/chat_conversations/${conv.uuid}?tree=True&rendering_mode=messages&render_all_tools=true`,
+        { credentials: 'include', headers: { 'Accept': 'application/json' } }
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      await indexConversationText(data);
+      indexed++;
+    } catch (_) {
+      failed++;
+    }
+  }
+
+  progressModal.style.display = 'none';
+  if (!cancelled) {
+    const stats = await getSearchIndexStats();
+    updateSearchIndexDisplay(stats.indexed);
+    showToast(`Search index: ${indexed} indexed${failed ? `, ${failed} failed` : ''}`);
+    const term = document.getElementById('searchInput').value;
+    if (searchContentMode && term) runContentSearch(term);
+  }
+}
+
+async function runContentSearch(term) {
+  clearTimeout(_contentSearchTimer);
+  if (!term) {
+    contentSearchResults = null;
+    applyFiltersAndSort();
+    return;
+  }
+  contentSearchResults = null; // triggers loading state in displayConversations
+  applyFiltersAndSort();
+  _contentSearchTimer = setTimeout(async () => {
+    contentSearchResults = await searchConversationIndex(term);
+    applyFiltersAndSort();
+  }, 300);
+}
 
 // ─────────────────────────────────────────────────────────────────────────
 // Bookmarks view
@@ -483,7 +661,13 @@ function applyFiltersAndSort() {
       matchesStatus = !isNewOrUpdated(conv);
     }
 
-    return matchesSearch && matchesStatus;
+    // Content search filter (when IDB results are ready)
+    let matchesContent = true;
+    if (searchContentMode && searchTerm) {
+      matchesContent = contentSearchResults !== null && contentSearchResults.has(conv.uuid);
+    }
+
+    return matchesSearch && matchesStatus && matchesContent;
   });
 
   // Sort conversations
@@ -584,9 +768,22 @@ function getSortIndicator(field) {
 function displayConversations() {
   exitBookmarksMode(); // restore normal view if coming from bookmarks
   const tableContent = document.getElementById('tableContent');
+  const pdfBulkFormatSelected = isPdfBulkFormatSelected();
+
+  if (pdfBulkFormatSelected) {
+    selectedConversations.clear();
+    lastCheckedIndex = null;
+  }
+
+  // Show spinner while IDB content search is in progress
+  if (searchContentMode && contentSearchResults === null && document.getElementById('searchInput').value) {
+    tableContent.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+    return;
+  }
 
   if (filteredConversations.length === 0) {
     tableContent.innerHTML = '<div class="no-results">No conversations found</div>';
+    updateExportButtonText();
     return;
   }
 
@@ -601,7 +798,7 @@ function displayConversations() {
           <th class="sortable" data-sort="model">Model${getSortIndicator('model')}</th>
           <th>Actions</th>
           <th class="checkbox-col">
-            <input type="checkbox" id="selectAll" class="select-all-checkbox" ${selectedConversations.size > 0 ? 'checked' : ''}>
+            <input type="checkbox" id="selectAll" class="select-all-checkbox" ${!pdfBulkFormatSelected && selectedConversations.size > 0 ? 'checked' : ''} ${pdfBulkFormatSelected ? `disabled title="${escapeHtml(PDF_BROWSE_BULK_EXPORT_MESSAGE)}"` : ''}>
           </th>
         </tr>
       </thead>
@@ -620,6 +817,7 @@ function displayConversations() {
     const projectName = getProjectName(conv);
 
     const newUpdated = isNewOrUpdated(conv);
+    const snippet = (searchContentMode && contentSearchResults) ? contentSearchResults.get(conv.uuid) : null;
     html += `
       <tr data-id="${escapeHtml(conv.uuid)}">
         <td>
@@ -628,6 +826,7 @@ function displayConversations() {
             <a href="https://claude.ai/chat/${escapeHtml(conv.uuid)}" target="_blank" title="${escapeHtml(conv.name)}">
               ${escapeHtml(conv.name)}
             </a>
+            ${snippet ? `<div class="search-snippet">${snippet}</div>` : ''}
           </div>
         </td>
         <td>${escapeHtml(projectName)}</td>
@@ -647,7 +846,7 @@ function displayConversations() {
           </div>
         </td>
         <td class="checkbox-col">
-          <input type="checkbox" class="conversation-checkbox" data-id="${escapeHtml(conv.uuid)}" data-index="${index}" ${selectedConversations.has(conv.uuid) ? 'checked' : ''}>
+          <input type="checkbox" class="conversation-checkbox" data-id="${escapeHtml(conv.uuid)}" data-index="${index}" ${!pdfBulkFormatSelected && selectedConversations.has(conv.uuid) ? 'checked' : ''} ${pdfBulkFormatSelected ? `disabled title="${escapeHtml(PDF_BROWSE_BULK_EXPORT_MESSAGE)}"` : ''}>
         </td>
       </tr>
     `;
@@ -687,11 +886,7 @@ function displayConversations() {
     });
   });
 
-  // Update export button text
-  updateExportButtonText();
-
-  // Enable export all button
-  document.getElementById('exportAllBtn').disabled = false;
+  syncPdfBulkExportState();
 }
 
 // Handle individual checkbox change
@@ -699,6 +894,13 @@ function handleCheckboxChange(e) {
   const checkbox = e.target;
   const conversationId = checkbox.dataset.id;
   const currentIndex = parseInt(checkbox.dataset.index);
+
+  if (isPdfBulkFormatSelected()) {
+    checkbox.checked = false;
+    selectedConversations.delete(conversationId);
+    syncPdfBulkExportState(true);
+    return;
+  }
 
   // Handle shift+click for range selection
   if (e.shiftKey && lastCheckedIndex !== null) {
@@ -739,6 +941,13 @@ function handleCheckboxChange(e) {
 
 // Handle select all checkbox
 function handleSelectAll(e) {
+  if (isPdfBulkFormatSelected()) {
+    e.target.checked = false;
+    selectedConversations.clear();
+    syncPdfBulkExportState(true);
+    return;
+  }
+
   const checkboxes = document.querySelectorAll('.conversation-checkbox');
 
   if (e.target.checked) {
@@ -766,6 +975,16 @@ function updateSelectAllCheckbox() {
   const selectAllCheckbox = document.getElementById('selectAll');
   if (!selectAllCheckbox) return;
 
+  if (isPdfBulkFormatSelected()) {
+    selectAllCheckbox.checked = false;
+    selectAllCheckbox.disabled = true;
+    selectAllCheckbox.title = PDF_BROWSE_BULK_EXPORT_MESSAGE;
+    return;
+  }
+
+  selectAllCheckbox.disabled = false;
+  selectAllCheckbox.title = '';
+
   // Show header checkbox as checked when any conversations are selected
   selectAllCheckbox.checked = selectedConversations.size > 0;
 }
@@ -775,10 +994,48 @@ function updateExportButtonText() {
   const exportBtn = document.getElementById('exportAllBtn');
   if (!exportBtn) return;
 
+  if (isPdfBulkFormatSelected()) {
+    selectedConversations.clear();
+    exportBtn.textContent = 'Export All';
+    exportBtn.disabled = true;
+    exportBtn.title = PDF_BROWSE_BULK_EXPORT_MESSAGE;
+    return;
+  }
+
+  exportBtn.disabled = false;
+  exportBtn.title = '';
+
   if (selectedConversations.size > 0) {
     exportBtn.textContent = `Export Selected (${selectedConversations.size})`;
   } else {
     exportBtn.textContent = 'Export All';
+  }
+}
+
+function isPdfBulkFormatSelected() {
+  const formatSelect = document.getElementById('exportFormat');
+  return formatSelect && formatSelect.value === 'pdf';
+}
+
+function syncPdfBulkExportState(showMessage = false) {
+  const pdfBulkFormatSelected = isPdfBulkFormatSelected();
+
+  if (pdfBulkFormatSelected) {
+    selectedConversations.clear();
+    lastCheckedIndex = null;
+  }
+
+  document.querySelectorAll('.conversation-checkbox').forEach(checkbox => {
+    checkbox.checked = !pdfBulkFormatSelected && selectedConversations.has(checkbox.dataset.id);
+    checkbox.disabled = pdfBulkFormatSelected;
+    checkbox.title = pdfBulkFormatSelected ? PDF_BROWSE_BULK_EXPORT_MESSAGE : '';
+  });
+
+  updateSelectAllCheckbox();
+  updateExportButtonText();
+
+  if (pdfBulkFormatSelected && showMessage) {
+    showToast(PDF_BROWSE_BULK_EXPORT_MESSAGE, true);
   }
 }
 
@@ -837,24 +1094,19 @@ async function exportConversation(conversationId, conversationName) {
     // Infer model if null
     data.model = inferModel(data);
 
-    // === PDF: open print-ready HTML in a new tab ===
+    // Index for full-text search (fire-and-forget — never blocks export)
+    indexConversationText(data).catch(() => {});
+
+    // === PDF: render and download directly ===
     if (format === 'pdf') {
-      const html = convertToHTML(data, conversationId, { includeArtifacts, includeThinking });
-      const win = window.open('about:blank', '_blank');
-      if (!win) {
-        showToast('PDF preview blocked by popup blocker — allow popups for this page and try again.', true);
-        return;
-      }
-      win.document.open();
-      win.document.write(html);
-      win.document.close();
-      // The inline onclick is blocked by the inherited CSP, so wire the
-      // print button from this (opener) context instead.
-      const printBtn = win.document.getElementById('cc-print-btn');
-      if (printBtn) printBtn.addEventListener('click', () => win.print());
-      win.focus();
+      const result = await exportConversationToPdf(data, conversationId, {
+        includeArtifacts,
+        includeThinking,
+        filename: conversationName || data.name || conversationId,
+        theme: getCurrentExportTheme()
+      });
       await saveExportTimestamp(conversationId);
-      showToast(`PDF ready: ${conversationName}`);
+      showToast(`PDF ready: ${result.filename}`);
       displayConversations(); updateStats();
       return;
     }
@@ -1361,7 +1613,7 @@ async function exportAllFiltered() {
 
   // PDF bulk export is not supported — check before disabling the button
   if (format === 'pdf') {
-    showToast('PDF export works one conversation at a time — use the single Export button per row.', true);
+    showToast(PDF_BROWSE_BULK_EXPORT_MESSAGE, true);
     return;
   }
 
@@ -1466,6 +1718,9 @@ async function exportAllFiltered() {
 
           // Infer model if null
           data.model = inferModel(data);
+
+          // Index for full-text search (fire-and-forget — never blocks export)
+          indexConversationText(data).catch(() => {});
 
           // Extract artifacts first to check if this conversation should be included
           const artifactFiles = extractArtifactFiles(data, artifactFormat);
@@ -1711,6 +1966,8 @@ function setupEventListeners() {
       // Update theme label
       const theme = document.documentElement.getAttribute('data-theme') || 'dark';
       document.getElementById('themeLabel').textContent = theme === 'dark' ? 'Dark' : 'Light';
+      // Update search index count
+      getSearchIndexStats().then(s => updateSearchIndexDisplay(s.indexed)).catch(() => {});
     }
   });
 
@@ -1803,6 +2060,15 @@ function setupEventListeners() {
     importBackup(file, mode, (success, message) => showToast(message, !success));
   });
 
+  // Search index settings item — click to launch full index build
+  const buildSearchIndexItem = document.getElementById('buildSearchIndexItem');
+  if (buildSearchIndexItem) {
+    buildSearchIndexItem.addEventListener('click', () => {
+      settingsDropdown.classList.remove('open');
+      buildFullSearchIndex();
+    });
+  }
+
   // Search input
   const searchInput = document.getElementById('searchInput');
   searchInput.addEventListener('input', (e) => {
@@ -1812,15 +2078,49 @@ function setupEventListeners() {
     } else {
       searchBox.classList.remove('has-text');
     }
-    applyFiltersAndSort();
+    if (searchContentMode) {
+      runContentSearch(e.target.value);
+    } else {
+      applyFiltersAndSort();
+    }
   });
-  
+
   // Clear search
   document.getElementById('clearSearch').addEventListener('click', () => {
     document.getElementById('searchInput').value = '';
     document.getElementById('searchBox').classList.remove('has-text');
+    contentSearchResults = null;
     applyFiltersAndSort();
   });
+
+  // Content search mode toggle
+  const searchModeBtn = document.getElementById('searchModeBtn');
+  if (searchModeBtn) {
+    searchModeBtn.addEventListener('click', () => {
+      searchContentMode = !searchContentMode;
+      searchModeBtn.classList.toggle('active', searchContentMode);
+      const banner = document.getElementById('searchIndexBanner');
+      if (banner) banner.style.display = searchContentMode ? 'flex' : 'none';
+      searchInput.placeholder = searchContentMode ? 'Search conversation content…' : 'Search conversations…';
+      contentSearchResults = null;
+      const term = searchInput.value;
+      if (searchContentMode && term) {
+        runContentSearch(term);
+      } else {
+        applyFiltersAndSort();
+      }
+      // Refresh index stats when entering content mode
+      if (searchContentMode) {
+        getSearchIndexStats().then(s => updateSearchIndexDisplay(s.indexed)).catch(() => {});
+      }
+    });
+  }
+
+  // Build full search index button
+  const buildIndexBtn = document.getElementById('buildIndexBtn');
+  if (buildIndexBtn) {
+    buildIndexBtn.addEventListener('click', () => buildFullSearchIndex());
+  }
 
   // Filter dropdown
   const filterBtn = document.getElementById('filterBtn');
@@ -1860,6 +2160,13 @@ function setupEventListeners() {
 
   // Export all button
   document.getElementById('exportAllBtn').addEventListener('click', exportAllFiltered);
+
+  const exportFormatSelect = document.getElementById('exportFormat');
+  if (exportFormatSelect) {
+    exportFormatSelect.addEventListener('change', () => {
+      syncPdfBulkExportState(isPdfBulkFormatSelected());
+    });
+  }
 
   // Export Project dropdown
   const exportProjectBtn = document.getElementById('exportProjectBtn');

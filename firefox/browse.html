@@ -232,7 +232,7 @@
     .search input {
       width: 100%; font-family: var(--ui); font-size: 13.5px; color: var(--ink);
       background: var(--surface); border: 1px solid var(--line-2); border-radius: 11px;
-      padding: 11px 42px; outline: none; transition: .15s;
+      padding: 11px 64px 11px 42px; outline: none; transition: .15s;
     }
     .search input::placeholder { color: var(--ink-3); }
     .search input:focus { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
@@ -242,6 +242,32 @@
       display: none; font-size: 14px; line-height: 1;
     }
     .search.has-text .clear-btn { display: block; }
+    .search.has-text .search-mode-btn { right: 34px; }
+    .search-mode-btn {
+      position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+      background: none; border: none; color: var(--ink-3); cursor: pointer; padding: 4px;
+      display: flex; align-items: center; justify-content: center; border-radius: 5px; transition: .13s;
+    }
+    .search-mode-btn:hover { background: var(--surface-2); color: var(--ink-2); }
+    .search-mode-btn.active { color: var(--accent); }
+    .search-mode-btn svg { width: 15px; height: 15px; }
+    .search-index-banner {
+      display: none; align-items: center; gap: 10px; padding: 7px 14px;
+      background: var(--surface-2); border: 1px solid var(--line); border-radius: 9px;
+      margin-top: 10px; font-size: 12.5px; color: var(--ink-2);
+    }
+    .search-index-banner .btn-link {
+      background: none; border: none; color: var(--accent); cursor: pointer;
+      font-family: var(--ui); font-size: 12.5px; font-weight: 600; padding: 0;
+      margin-left: auto; transition: .13s;
+    }
+    .search-index-banner .btn-link:hover { color: var(--accent-deep); }
+    .search-snippet {
+      font-size: 12px; color: var(--ink-3); margin-top: 4px; font-family: var(--mono);
+      line-height: 1.5; white-space: pre-wrap; overflow: hidden;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    }
+    .search-snippet mark { background: var(--accent-soft); color: var(--accent-deep); border-radius: 2px; padding: 0 2px; }
     .vis-filters {
       display: flex; gap: 3px; background: var(--surface-2); border: 1px solid var(--line);
       border-radius: 11px; padding: 3px;
@@ -343,6 +369,7 @@
     .btn-export { /* alias */ }
     .checkbox-col { width: 54px; text-align: center; padding: 15px 18px !important; vertical-align: middle; }
     .checkbox-col input[type="checkbox"] { cursor: pointer; width: 16px; height: 16px; accent-color: var(--accent); }
+    .checkbox-col input[type="checkbox"]:disabled { cursor: not-allowed; opacity: .45; }
 
     /* Loading / error states */
     .loading { text-align: center; padding: 56px 20px; color: var(--ink-2); }
@@ -493,6 +520,11 @@
         <div class="settings-item" id="restoreData"><span class="settings-label">Import Backup</span></div>
       </div>
     </div>
+    <div class="settings-item" id="buildSearchIndexItem">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      <span class="settings-label">Search index</span>
+      <span class="settings-value" id="searchIndexCount">—</span>
+    </div>
     <div class="settings-item" id="advancedOptions">
       <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       <span class="settings-label">Advanced options</span>
@@ -517,10 +549,7 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
             Export options
           </button>
-          <button id="exportAllBtn" class="btn btn-primary" disabled>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            Export all
-          </button>
+          <button id="exportAllBtn" class="btn btn-primary" disabled>Export all</button>
         </div>
       </div>
 
@@ -528,6 +557,9 @@
         <div class="search" id="searchBox">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
           <input type="text" id="searchInput" placeholder="Search conversations…">
+          <button class="search-mode-btn" id="searchModeBtn" title="Search message content (indexes as you export)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+          </button>
           <button class="clear-btn" id="clearSearch">✕</button>
         </div>
         <div class="vis-filters" id="visFilters">
@@ -547,6 +579,13 @@
             <div id="projectOptions"></div>
           </div>
         </div>
+      </div>
+
+      <!-- Search index banner (shown when content search mode is active) -->
+      <div id="searchIndexBanner" class="search-index-banner">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;flex:none;color:var(--accent)"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <span id="searchIndexStats">0 conversations indexed</span>
+        <button id="buildIndexBtn" class="btn-link">Build full index</button>
       </div>
     </div>
 
@@ -625,118 +664,7 @@
   </div>
 </div>
 
-<script>
-  // Initialize rail from manifest
-  (function () {
-    const m = chrome.runtime.getManifest();
-    const nameEl = document.getElementById('rail-name');
-    const verEl = document.getElementById('rail-version');
-    if (nameEl) nameEl.textContent = m.name;
-    if (verEl) verEl.textContent = `v${m.version} · beta`;
-  })();
-
-  // Export options panel toggle
-  document.getElementById('exportOptionsToggle').addEventListener('click', () => {
-    const panel = document.getElementById('exportOptionsPanel');
-    const btn = document.getElementById('exportOptionsToggle');
-    const open = panel.classList.toggle('show');
-    btn.style.background = open ? 'var(--accent-soft)' : '';
-    btn.style.borderColor = open ? 'var(--accent)' : '';
-    btn.style.color = open ? 'var(--accent-deep)' : '';
-  });
-
-  // Sidebar "Export options" nav item also toggles panel
-  document.getElementById('nav-export-opts').addEventListener('click', (e) => {
-    e.preventDefault();
-    document.getElementById('exportOptionsToggle').click();
-  });
-
-  // Sidebar navigation filter shortcuts
-  document.getElementById('nav-all').addEventListener('click', (e) => {
-    e.preventDefault();
-    document.querySelector('.filter-option[data-value="all"]').click();
-    document.querySelectorAll('#visFilters button').forEach(b => b.classList.toggle('on', b.dataset.filter === 'all'));
-    document.querySelectorAll('.nav a').forEach(a => a.classList.remove('on'));
-    document.getElementById('nav-all').classList.add('on');
-  });
-  document.getElementById('nav-exported').addEventListener('click', (e) => {
-    e.preventDefault();
-    document.querySelector('.filter-option[data-value="exported"]').click();
-    document.querySelectorAll('#visFilters button').forEach(b => b.classList.toggle('on', b.dataset.filter === 'exported'));
-    document.querySelectorAll('.nav a').forEach(a => a.classList.remove('on'));
-    document.getElementById('nav-exported').classList.add('on');
-  });
-
-  // Visual filter segmented control → clicks the hidden .filter-option items
-  document.querySelectorAll('#visFilters button').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const val = btn.dataset.filter;
-      const opt = document.querySelector(`.filter-option[data-value="${val}"]`);
-      if (opt) opt.click();
-      document.querySelectorAll('#visFilters button').forEach(b => b.classList.toggle('on', b === btn));
-      // Sync nav active state
-      const navMap = { all: 'nav-all', exported: 'nav-exported' };
-      document.querySelectorAll('.nav a').forEach(a => a.classList.remove('on'));
-      const navId = navMap[val] || 'nav-all';
-      const navEl = document.getElementById(navId);
-      if (navEl) navEl.classList.add('on');
-    });
-  });
-
-  // Keep visual filter buttons in sync when browse.js updates filter-option selected class
-  const filterObserver = new MutationObserver(() => {
-    const selected = document.querySelector('.filter-option.selected');
-    const val = selected ? selected.dataset.value : 'all';
-    document.querySelectorAll('#visFilters button').forEach(btn => {
-      btn.classList.toggle('on', btn.dataset.filter === val);
-    });
-  });
-  document.querySelectorAll('.filter-option').forEach(opt => {
-    filterObserver.observe(opt, { attributes: true, attributeFilter: ['class'] });
-  });
-
-  // Theme toggle buttons in settings dropdown
-  function updateThemeButtons() {
-    const theme = document.documentElement.getAttribute('data-theme') || 'light';
-    const isDark = theme === 'dark';
-    document.getElementById('themeLightBtn').classList.toggle('on', !isDark);
-    document.getElementById('themeDarkBtn').classList.toggle('on', isDark);
-    const label = document.getElementById('themeLabel');
-    if (label) label.textContent = isDark ? 'Dark' : 'Light';
-  }
-  function setTheme(theme) {
-    document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('theme', theme);
-    const label = document.getElementById('themeLabel');
-    if (label) label.textContent = theme === 'dark' ? 'Dark' : 'Light';
-    updateThemeButtons();
-  }
-  document.getElementById('themeLightBtn').addEventListener('click', () => setTheme('light'));
-  document.getElementById('themeDarkBtn').addEventListener('click', () => setTheme('dark'));
-
-  // Keep theme buttons in sync when browse.js changes data-theme (via toggleTheme / initTheme)
-  new MutationObserver(updateThemeButtons)
-    .observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-
-  // Show count in rail
-  function updateRailCount(count) {
-    const ct = document.getElementById('nav-count');
-    if (ct) ct.textContent = count > 0 ? count.toLocaleString() : '';
-    const uc = document.getElementById('usageCount');
-    if (uc) uc.textContent = count > 0 ? count.toLocaleString() : '0';
-  }
-  // Observe stats element for conversation count updates
-  const statsObserver = new MutationObserver(() => {
-    const statsEl = document.getElementById('stats');
-    if (!statsEl) return;
-    const text = statsEl.textContent || '';
-    const m = text.match(/[\d,]+/);
-    if (m) updateRailCount(parseInt(m[0].replace(/,/g, '')));
-  });
-  const statsEl = document.getElementById('stats');
-  if (statsEl) statsObserver.observe(statsEl, { childList: true, subtree: true, characterData: true });
-</script>
-
+<script src="browse-init.js"></script>
 <script src="jszip.min.js"></script>
 <script src="utils.js"></script>
 <script src="browse.js"></script>
