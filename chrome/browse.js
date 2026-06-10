@@ -894,6 +894,9 @@ async function loadConversations() {
     // Apply initial sort and display
     applyFiltersAndSort();
 
+    // Auto-select new/updated conversations so they're ready for bulk export
+    autoSelectNewUpdated();
+
     // Enable Export Project button now that projects are loaded
     populateProjectDropdown();
 

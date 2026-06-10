@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.4.2] - 2026-06-10
+
+- **Auto-select new/updated on load** — the browse page now pre-selects new/updated conversations when it loads, so they're immediately ready for bulk export
+- **Obsidian filename live preview** — the options page template field now shows a live preview of the resulting filename (rendered through the same `obsidianFilename()` used by exports) as you type
+
 ## [1.4.1] - 2026-06-10
 
 ### Fixes

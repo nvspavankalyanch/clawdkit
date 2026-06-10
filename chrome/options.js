@@ -157,12 +157,25 @@ document.getElementById('wideModeToggle').addEventListener('change', (e) => {
 });
 
 // Obsidian filename template
+// Live preview renders the template through the real obsidianFilename()
+// (utils.js) so it can never drift from actual export behavior.
+function updateObsidianFilenamePreview() {
+  const previewEl = document.getElementById('obsidianFilenamePreview');
+  if (!previewEl) return;
+  const template = document.getElementById('obsidianFilenameTemplate').value;
+  const sample = { name: 'My Conversation', created_at: new Date().toISOString() };
+  previewEl.textContent = `Preview: ${obsidianFilename(sample, template)}`;
+}
+
 function loadObsidianFilenamePref() {
   chrome.storage.local.get(['obsidianFilenameTemplate'], (result) => {
     document.getElementById('obsidianFilenameTemplate').value = result.obsidianFilenameTemplate || '';
+    updateObsidianFilenamePreview();
   });
 }
 loadObsidianFilenamePref();
+
+document.getElementById('obsidianFilenameTemplate').addEventListener('input', updateObsidianFilenamePreview);
 
 document.getElementById('obsidianFilenameTemplate').addEventListener('change', (e) => {
   chrome.storage.local.set({ obsidianFilenameTemplate: e.target.value.trim() }, () => {
