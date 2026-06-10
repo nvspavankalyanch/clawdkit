@@ -467,52 +467,7 @@
   </main>
 </div>
 
-<script>
-  // Initialize nav from manifest info
-  (function () {
-    const m = chrome.runtime.getManifest();
-    const nameEl = document.getElementById('rail-name');
-    const verEl = document.getElementById('rail-version');
-    if (nameEl) nameEl.textContent = m.name;
-    if (verEl) verEl.textContent = `v${m.version} · beta`;
-  })();
-
-  // Visual radio card sync with hidden radio inputs
-  document.querySelectorAll('.radio').forEach(card => {
-    card.addEventListener('click', () => {
-      document.querySelectorAll('.radio').forEach(r => r.classList.remove('on'));
-      card.classList.add('on');
-      const radio = card.querySelector('input[type="radio"]');
-      if (radio) { radio.checked = true; radio.dispatchEvent(new Event('change', { bubbles: true })); }
-    });
-  });
-
-  // Sync model display visual state and connection badge from storage on load
-  document.addEventListener('DOMContentLoaded', () => {
-    chrome.storage.local.get(['modelDisplay'], (result) => {
-      const val = result.modelDisplay === 'current' ? 'current' : 'original';
-      document.querySelectorAll('.radio').forEach(r => {
-        const inp = r.querySelector('input[type="radio"]');
-        r.classList.toggle('on', inp && inp.value === val);
-      });
-    });
-    chrome.storage.sync.get(['organizationId'], (result) => {
-      const badge = document.getElementById('connStatusBadge');
-      if (badge && result.organizationId) badge.style.display = 'inline-flex';
-    });
-  });
-</script>
-
-<script>
-  // Theme init (same convention as popup-theme.js)
-  (function () {
-    const saved = localStorage.getItem('theme');
-    if (saved) document.documentElement.setAttribute('data-theme', saved);
-    else if (window.matchMedia('(prefers-color-scheme: dark)').matches)
-      document.documentElement.setAttribute('data-theme', 'dark');
-  })();
-</script>
-
+<script src="options-init.js"></script>
 <script src="utils.js"></script>
 <script src="options.js"></script>
 </body>

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.4.1] - 2026-06-10
+
+### Fixes
+- **Firefox redesign parity** — the redesigned browse page referenced `browse-init.js`, which only existed in the Chrome build, leaving the Firefox browse sidebar, theme controls, and export panel uninitialised. Added `browse-init.js`, `popup-sync.js`, and `options-init.js` to the Firefox build.
+- **Firefox popup/options controls dead (CSP)** — the redesigned popup and options pages used inline `<script>` blocks, which Firefox MV2's default extension-page CSP (`script-src 'self'`) blocks. Externalised them to `popup-sync.js` / `options-init.js` (same files as Chrome), restoring the segmented format buttons, toggle switches, and radio cards.
+
 ## [1.4.0] - 2026-06-08
 
 - **Folder Organization** — color-coded folders in the browse page sidebar; drag conversation rows onto folders to assign them; click a folder to filter the table; bulk-assign selected conversations via "Move to folder" dropdown; "Unfiled" virtual folder; folder data stored in chrome.storage.local and included in Backup/Restore
