@@ -98,10 +98,10 @@ Any export producing more than one file should always create a ZIP — never tri
 
 `"name"` in BOTH manifests must be:
 
-- `"ClawdKit"` on the `main` branch (released version)
-- `"ClawdKit Beta"` on the `testing` branch (so the user can tell at a glance which build is loaded)
+- `"ClawdKit for Claude.ai"` on the `main` branch (released version)
+- `"ClawdKit for Claude.ai Beta"` on the `testing` branch (so the user can tell at a glance which build is loaded)
 
-The popup header title is populated from `manifest.name` in `popup.js` (`#header-title`), so the popup automatically reads "ClawdKit Beta" on the testing branch — no separate HTML edit needed.
+The popup header title is populated from `manifest.name` in `popup.js` (`#header-title`), so the popup automatically reads "ClawdKit for Claude.ai Beta" on the testing branch — no separate HTML edit needed.
 
 When merging `testing` → `main` for a release, flip both manifest names to drop "Beta" as part of the merge.
 
