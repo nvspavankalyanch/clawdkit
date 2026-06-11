@@ -207,9 +207,11 @@
 
 				if (headerMissing && !headerReattachPending) {
 					headerReattachPending = true;
-					CC.waitForElement(CC.DOM.CHAT_MENU_TRIGGER, 60000).then((el) => {
+					// Short wait: if the chat-menu testid never shows up (claude.ai
+					// removed it), attachHeader() falls back to the usage-line anchor.
+					CC.waitForElement(CC.DOM.CHAT_MENU_TRIGGER, 5000).then(() => {
 						headerReattachPending = false;
-						if (el) this.attachHeader();
+						this.attachHeader();
 					});
 				}
 			});
@@ -312,14 +314,27 @@
 
 		attachHeader() {
 			const chatMenu = document.querySelector(CC.DOM.CHAT_MENU_TRIGGER);
-			if (!chatMenu) return;
-			const anchor = chatMenu.closest(CC.DOM.CHAT_PROJECT_WRAPPER) || chatMenu.parentElement;
-			if (!anchor) return;
-			if (anchor.nextElementSibling !== this.headerContainer) {
-				anchor.after(this.headerContainer);
+			if (chatMenu) {
+				const anchor = chatMenu.closest(CC.DOM.CHAT_PROJECT_WRAPPER) || chatMenu.parentElement;
+				if (anchor) {
+					if (anchor.nextElementSibling !== this.headerContainer) {
+						anchor.after(this.headerContainer);
+					}
+					this._renderHeader();
+					this.refreshProgressChrome();
+					return;
+				}
 			}
-			this._renderHeader();
-			this.refreshProgressChrome();
+			// Fallback: claude.ai removed the chat-menu-trigger testid from the top
+			// bar. Mount the tokens/cache header just above the usage line instead —
+			// its anchor (the model selector) is still present.
+			if (this.usageLine && this.usageLine.parentElement) {
+				if (this.usageLine.previousElementSibling !== this.headerContainer) {
+					this.usageLine.before(this.headerContainer);
+				}
+				this._renderHeader();
+				this.refreshProgressChrome();
+			}
 		}
 
 		attachUsageLine() {

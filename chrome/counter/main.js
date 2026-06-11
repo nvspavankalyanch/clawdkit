@@ -224,7 +224,12 @@
 		// Attach usage line and header independently - they have different anchor elements
 		// and CHAT_MENU_TRIGGER doesn't exist on home/new pages
 		waitForElement(CC.DOM.MODEL_SELECTOR_DROPDOWN, 60000).then((el) => {
-			if (el) ui.attachUsageLine();
+			if (el) {
+				ui.attachUsageLine();
+				// Also attach the header here: if claude.ai's chat-menu-trigger testid
+				// is gone, attachHeader() falls back to mounting above the usage line.
+				ui.attachHeader();
+			}
 		});
 		waitForElement(CC.DOM.CHAT_MENU_TRIGGER, 60000).then((el) => {
 			if (el) ui.attachHeader();
