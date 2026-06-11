@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.4.3] - 2026-06-11
+
+### Fixes
+- **Token count and cache timer not visible** - claude.ai removed `[data-testid="chat-menu-trigger"]` from the top bar; `attachHeader()` now falls back to mounting above the usage line when that element is absent. Reattach wait also reduced from 60s to 5s so the fallback kicks in quickly.
+
 ## [1.4.2] - 2026-06-10
 
 - **Auto-select new/updated on load** — the browse page now pre-selects new/updated conversations when it loads, so they're immediately ready for bulk export
