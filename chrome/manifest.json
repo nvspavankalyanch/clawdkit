@@ -58,7 +58,7 @@
         "counter/bridge.js"
       ],
       "matches": [
-        "<all_urls>"
+        "https://claude.ai/*"
       ]
     }
   ]
