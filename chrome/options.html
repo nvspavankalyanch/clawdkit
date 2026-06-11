@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>ClawdKit Settings</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --paper: #FBFAF7; --surface: #FFFFFF; --surface-2: #F4F1EB; --surface-3: #EEE9E1;
+      --ink: #1B1714; --ink-2: #5B544B; --ink-3: #9A9186; --ink-4: #B8AFA2;
+      --line: #EBE5DB; --line-2: #E1D9CD;
+      --accent: #C2603D; --accent-deep: #A84B2C; --accent-soft: #F7EBE3;
+      --positive: #3C7A57; --positive-soft: #E7F0EA;
+      --rail: #211C18;
+      --display: 'Bricolage Grotesque', system-ui, sans-serif;
+      --ui: 'Hanken Grotesk', system-ui, sans-serif;
+      --mono: 'JetBrains Mono', ui-monospace, monospace;
+    }
+    html[data-theme="dark"] {
+      --paper: #16120E; --surface: #211B15; --surface-2: #2A2219; --surface-3: #342A20;
+      --ink: #F2ECE2; --ink-2: #B6AC9D; --ink-3: #8B8174; --ink-4: #5E5546;
+      --line: #312920; --line-2: #3E3429;
+      --accent: #D77A52; --accent-deep: #E89068; --accent-soft: #2F2118;
+      --positive: #63B488; --positive-soft: #1E2A21;
+      --rail: #100C09;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body {
+      background: var(--paper); font-family: var(--ui); color: var(--ink);
+      -webkit-font-smoothing: antialiased; min-height: 100vh;
+    }
+    .app { display: flex; min-height: 100vh; }
+
+    /* Sidebar */
+    .rail {
+      width: 248px; flex: none; background: var(--rail);
+      color: #E8E2D8; display: flex; flex-direction: column;
+      padding: 22px 16px; position: sticky; top: 0; height: 100vh;
+    }
+    .rail-brand { display: flex; align-items: center; gap: 11px; padding: 4px 8px 20px; }
+    .rail-brand img { width: 34px; height: 34px; border-radius: 9px; }
+    .rail-brand .nm { font-family: var(--display); font-weight: 700; font-size: 15.5px; letter-spacing: -.01em; }
+    .rail-brand .bt { font-family: var(--mono); font-size: 10px; color: #9C9081; margin-top: 3px; }
+    .nav { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
+    .nav-h {
+      font-size: 10.5px; font-weight: 700; letter-spacing: .12em;
+      text-transform: uppercase; color: #7E7263; padding: 0 10px; margin: 14px 0 7px;
+    }
+    .nav a {
+      display: flex; align-items: center; gap: 11px; padding: 9px 11px;
+      border-radius: 9px; color: #C7BFB2; font-size: 13.5px; font-weight: 500;
+      text-decoration: none; transition: .14s;
+    }
+    .nav a svg { width: 17px; height: 17px; opacity: .85; }
+    .nav a:hover { background: rgba(255,255,255,.05); color: #F2ECE2; }
+    .nav a.on { background: var(--accent); color: #fff; }
+    .nav a.on svg { opacity: 1; }
+    .nav a .ct { margin-left: auto; font-family: var(--mono); font-size: 11px; opacity: .7; }
+    .rail-foot {
+      margin-top: auto; padding: 14px 12px 6px;
+      border-top: 1px solid rgba(255,255,255,.08);
+    }
+    .usage-h { display: flex; justify-content: space-between; font-size: 11.5px; color: #9C9081; margin-bottom: 8px; }
+    .usage-h b { color: #E8E2D8; font-weight: 600; font-family: var(--mono); }
+    .bar { height: 6px; border-radius: 999px; background: rgba(255,255,255,.1); overflow: hidden; }
+    .bar i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--accent), #E0875E); }
+
+    /* Main */
+    .main { flex: 1; min-width: 0; display: flex; justify-content: center; padding: 34px 40px 64px; }
+    .page { width: 100%; max-width: 760px; }
+    .pg-head { margin-bottom: 8px; }
+    h1 { font-family: var(--display); font-weight: 700; font-size: 30px; letter-spacing: -.025em; margin: 0; }
+    .pg-sub { font-size: 13.5px; color: var(--ink-2); margin-top: 7px; }
+
+    /* Section */
+    .section { margin-top: 34px; }
+    .sec-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; }
+    .sec-title { font-family: var(--display); font-weight: 600; font-size: 17px; letter-spacing: -.01em; }
+    .sec-desc { font-size: 13px; color: var(--ink-3); }
+    .panel {
+      background: var(--surface); border: 1px solid var(--line); border-radius: 16px;
+      margin-top: 14px; overflow: hidden;
+      box-shadow: 0 1px 2px rgba(40,30,20,.03), 0 14px 30px -26px rgba(40,30,20,.22);
+    }
+    html[data-theme="dark"] .panel {
+      box-shadow: 0 1px 0 rgba(255,255,255,.03) inset, 0 24px 50px -20px rgba(0,0,0,.6);
+    }
+
+    /* Row */
+    .row { display: flex; align-items: flex-start; gap: 24px; padding: 20px 22px; border-top: 1px solid var(--line); }
+    .row:first-child { border-top: none; }
+    .row-l { flex: 1; min-width: 0; }
+    .row-name { font-size: 14px; font-weight: 600; letter-spacing: -.01em; }
+    .row-help { font-size: 12.5px; color: var(--ink-3); margin-top: 4px; line-height: 1.5; }
+    .row-help a { color: var(--accent-deep); text-decoration: none; border-bottom: 1px solid var(--accent-soft); }
+    .row-r { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+
+    /* Inputs */
+    input[type="text"] {
+      font-family: var(--mono); font-size: 13px; color: var(--ink);
+      background: var(--surface); border: 1px solid var(--line-2);
+      border-radius: 10px; padding: 11px 14px; width: 340px; outline: none; transition: .15s;
+    }
+    input[type="text"]:focus { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+    .sel { position: relative; }
+    select {
+      -webkit-appearance: none; appearance: none;
+      font-family: var(--ui); font-size: 13.5px; font-weight: 500; color: var(--ink);
+      background: var(--surface); border: 1px solid var(--line-2); border-radius: 10px;
+      padding: 10px 38px 10px 14px; width: 190px; cursor: pointer; outline: none; transition: .15s;
+    }
+    select:focus { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+    .sel svg {
+      position: absolute; right: 13px; top: 50%; transform: translateY(-50%);
+      width: 15px; height: 15px; color: var(--ink-3); pointer-events: none;
+    }
+
+    /* Buttons */
+    .btn {
+      font-family: var(--ui); font-weight: 600; font-size: 13.5px; border-radius: 10px;
+      padding: 10px 16px; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 8px; transition: .15s;
+      border: 1px solid transparent; letter-spacing: -.01em; white-space: nowrap;
+    }
+    .btn svg { width: 15px; height: 15px; }
+    .btn-primary { background: var(--accent); color: #fff; box-shadow: 0 2px 8px -2px rgba(168,75,44,.5); }
+    .btn-primary:hover { background: var(--accent-deep); }
+    .btn-ghost { background: var(--surface); color: var(--ink); border-color: var(--line-2); }
+    .btn-ghost:hover { background: var(--surface-2); }
+    .btnrow { display: flex; gap: 9px; flex-wrap: wrap; align-items: center; }
+
+    /* Connected status badge */
+    .conn-status {
+      display: inline-flex; align-items: center; gap: 7px;
+      font-size: 12.5px; font-weight: 600; color: var(--positive);
+      background: var(--positive-soft); border-radius: 999px; padding: 5px 12px;
+    }
+    .conn-status .d { width: 7px; height: 7px; border-radius: 50%; background: var(--positive); }
+    .conn-status.error-state { color: var(--accent-deep); background: var(--accent-soft); }
+    .conn-status.error-state .d { background: var(--accent-deep); }
+
+    /* Org ID helper */
+    .helper {
+      display: flex; gap: 13px; padding: 16px 18px;
+      background: var(--surface-2); border-radius: 12px; margin: 0 22px 4px;
+    }
+    .helper-ic {
+      width: 30px; height: 30px; border-radius: 8px; background: var(--accent-soft);
+      color: var(--accent-deep); display: flex; align-items: center; justify-content: center; flex: none;
+    }
+    .helper-ic svg { width: 16px; height: 16px; }
+    .helper ol { margin: 0; padding-left: 18px; font-size: 12.5px; color: var(--ink-2); line-height: 1.7; }
+    .helper code {
+      font-family: var(--mono); font-size: 11.5px; background: var(--surface);
+      border: 1px solid var(--line); padding: 1px 6px; border-radius: 5px; color: var(--ink);
+    }
+    .helper a { color: var(--accent-deep); text-decoration: none; border-bottom: 1px solid var(--accent-soft); }
+
+    /* Radio cards */
+    .radios { display: flex; flex-direction: column; }
+    .radio { display: flex; gap: 13px; padding: 18px 22px; border-top: 1px solid var(--line); cursor: pointer; transition: .14s; }
+    .radio:first-child { border-top: none; }
+    .radio:hover { background: var(--surface-2); }
+    .radio.on { background: var(--accent-soft); }
+    .dot {
+      width: 19px; height: 19px; border-radius: 50%; border: 2px solid var(--line-2);
+      flex: none; margin-top: 1px; transition: .14s; position: relative; background: var(--surface);
+    }
+    .radio.on .dot { border-color: var(--accent); }
+    .radio.on .dot::after { content: ""; position: absolute; inset: 3px; border-radius: 50%; background: var(--accent); }
+    .radio-name { font-size: 14px; font-weight: 600; }
+    .radio-desc { font-size: 12.5px; color: var(--ink-3); margin-top: 3px; line-height: 1.5; }
+
+    /* Status messages */
+    .status { display: none; margin-top: 10px; font-size: 12.5px; padding: 9px 13px; border-radius: 8px; }
+    .status.success { display: block; background: var(--positive-soft); color: var(--positive); }
+    .status.error { display: block; background: var(--accent-soft); color: var(--accent-deep); }
+
+    .link-row { font-size: 13px; color: var(--ink-2); line-height: 1.7; }
+    .link-row a { color: var(--accent-deep); text-decoration: none; border-bottom: 1px solid var(--accent-soft); }
+
+    /* Keyboard shortcut display */
+    kbd {
+      font-family: var(--mono); font-size: 11px; font-weight: 500;
+      background: var(--surface-2); border: 1px solid var(--line-2);
+      border-bottom-width: 2px; border-radius: 5px; padding: 2px 6px; color: var(--ink-2);
+    }
+    .shortcut-row { display: flex; align-items: center; gap: 7px; margin-top: 6px; }
+    .shortcut-row span { font-size: 12.5px; color: var(--ink-3); }
+
+    /* Toggle switch */
+    .tog { position: relative; display: inline-block; width: 44px; height: 24px; flex: none; }
+    .tog input { opacity: 0; width: 0; height: 0; position: absolute; }
+    .tog-track {
+      position: absolute; inset: 0; border-radius: 999px;
+      background: var(--surface-3); border: 1px solid var(--line-2);
+      cursor: pointer; transition: background .2s, border-color .2s;
+    }
+    .tog input:checked + .tog-track { background: var(--accent); border-color: var(--accent); }
+    .tog-track::after {
+      content: ''; position: absolute; width: 18px; height: 18px;
+      left: 2px; top: 2px; border-radius: 50%;
+      background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.25); transition: transform .2s;
+    }
+    .tog input:checked + .tog-track::after { transform: translateX(20px); }
+  </style>
+</head>
+<body>
+<div class="app">
+  <aside class="rail">
+    <div class="rail-brand">
+      <img src="icon48.png" alt="">
+      <div>
+        <div class="nm" id="rail-name">ClawdKit</div>
+        <div class="bt" id="rail-version">v1.0.1 · beta</div>
+      </div>
+    </div>
+    <nav class="nav">
+      <div class="nav-h">Library</div>
+      <a href="browse.html" id="nav-conversations">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        Conversations
+      </a>
+      <a href="browse.html" id="nav-exported">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+        Exported
+      </a>
+      <div class="nav-h">Format</div>
+      <a href="options.html" class="on">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        Settings
+      </a>
+    </nav>
+    <div class="rail-foot">
+      <div class="usage-h">Storage used <b id="storageUsed">—</b></div>
+      <div class="bar"><i id="storageBar" style="width:0%"></i></div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="page">
+      <div class="pg-head">
+        <h1>Settings</h1>
+        <div class="pg-sub">Connection, backups, and how conversations are displayed.</div>
+      </div>
+
+      <!-- Connection -->
+      <div class="section">
+        <div class="sec-head">
+          <span class="sec-title">Connection</span>
+          <span class="sec-desc">Link the extension to your Claude account.</span>
+        </div>
+        <div class="panel">
+          <div class="helper">
+            <div class="helper-ic">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+            </div>
+            <ol>
+              <li>Go to <a href="https://claude.ai/settings/account" target="_blank">claude.ai/settings/account</a></li>
+              <li>Copy your Organization ID — a UUID like <code>xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx</code></li>
+              <li>Paste it below and save</li>
+            </ol>
+          </div>
+          <div class="row">
+            <div class="row-l">
+              <div class="row-name">Organization ID</div>
+              <div class="row-help">Stored locally and used to fetch your conversations.</div>
+            </div>
+            <div class="row-r">
+              <input type="text" id="orgId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+              <div class="btnrow">
+                <span class="conn-status" id="connStatusBadge" style="display:none"><span class="d"></span><span id="connStatusText">Connected</span></span>
+                <button class="btn btn-ghost" id="testBtn">Test connection</button>
+                <button class="btn btn-primary" id="saveBtn">Save</button>
+              </div>
+            </div>
+          </div>
+          <div id="status" class="status" style="margin: 0 22px 16px;"></div>
+          <div id="testStatus" class="status" style="margin: 0 22px 16px;"></div>
+        </div>
+      </div>
+
+      <!-- Backup & Restore -->
+      <div class="section">
+        <div class="sec-head"><span class="sec-title">Backup &amp; Restore</span></div>
+        <div class="panel">
+          <div class="row">
+            <div class="row-l">
+              <div class="row-name">Extension data</div>
+              <div class="row-help">Save model snapshots, export history, and preferences to a file — handy before uninstalling or moving to another browser or device.</div>
+            </div>
+            <div class="row-r">
+              <div class="btnrow">
+                <button class="btn btn-ghost" id="backupBtn">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  Export backup
+                </button>
+                <button class="btn btn-ghost" id="restoreBtn">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  Import backup
+                </button>
+              </div>
+            </div>
+          </div>
+          <div id="backupStatus" class="status" style="margin: 0 22px 16px;"></div>
+        </div>
+        <input type="file" id="restoreFile" accept="application/json,.json" style="display:none">
+      </div>
+
+      <!-- Date & Time -->
+      <div class="section">
+        <div class="sec-head">
+          <span class="sec-title">Date &amp; Time</span>
+          <span class="sec-desc">How timestamps appear in the library.</span>
+        </div>
+        <div class="panel">
+          <div class="row">
+            <div class="row-l"><div class="row-name">Date format</div></div>
+            <div class="row-r">
+              <div class="sel">
+                <select id="dateFormatSelect">
+                  <option value="mdy">M/D/Y</option>
+                  <option value="dmy">D/M/Y</option>
+                </select>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              </div>
+            </div>
+          </div>
+          <div class="row">
+            <div class="row-l"><div class="row-name">Time format</div></div>
+            <div class="row-r">
+              <div class="sel">
+                <select id="timeFormatSelect">
+                  <option value="12h">12-hour</option>
+                  <option value="24h">24-hour</option>
+                </select>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              </div>
+            </div>
+          </div>
+          <div id="dateTimeStatus" class="status" style="margin: 0 22px 16px;"></div>
+        </div>
+      </div>
+
+      <!-- Appearance -->
+      <div class="section">
+        <div class="sec-head">
+          <span class="sec-title">Appearance</span>
+          <span class="sec-desc">Customise how Claude.ai looks.</span>
+        </div>
+        <div class="panel">
+          <div class="row">
+            <div class="row-l">
+              <div class="row-name">Wide Mode</div>
+              <div class="row-help">Removes claude.ai's side margins so the conversation and input area fill the full browser width. Useful on wide monitors and for long code blocks.</div>
+            </div>
+            <div class="row-r" style="justify-content: center; padding-top: 2px;">
+              <label class="tog">
+                <input type="checkbox" id="wideModeToggle">
+                <span class="tog-track"></span>
+              </label>
+            </div>
+          </div>
+          <div id="appearanceStatus" class="status" style="margin: 0 22px 16px;"></div>
+        </div>
+      </div>
+
+      <!-- Keyboard -->
+      <div class="section">
+        <div class="sec-head">
+          <span class="sec-title">Keyboard</span>
+          <span class="sec-desc">Shortcuts and input behaviour on claude.ai.</span>
+        </div>
+        <div class="panel">
+          <div class="row">
+            <div class="row-l">
+              <div class="row-name">Ctrl+Enter to send</div>
+              <div class="row-help">When on, <kbd>Enter</kbd> inserts a newline and <kbd>Ctrl</kbd> <kbd>Enter</kbd> sends the message. When off, <kbd>Enter</kbd> sends (claude.ai default). <kbd>Shift</kbd> <kbd>Enter</kbd> always inserts a newline.</div>
+            </div>
+            <div class="row-r" style="justify-content: center; padding-top: 2px;">
+              <label class="tog">
+                <input type="checkbox" id="ctrlEnterToggle">
+                <span class="tog-track"></span>
+              </label>
+            </div>
+          </div>
+          <div class="row">
+            <div class="row-l">
+              <div class="row-name">Quick shortcuts</div>
+              <div class="row-help">
+                Always active on claude.ai tabs.
+                <div class="shortcut-row"><kbd>Alt</kbd><kbd>E</kbd> <span>Export current conversation as Markdown</span></div>
+                <div class="shortcut-row"><kbd>Alt</kbd><kbd>B</kbd> <span>Open Browse page</span></div>
+              </div>
+            </div>
+          </div>
+          <div id="keyboardStatus" class="status" style="margin: 0 22px 16px;"></div>
+        </div>
+      </div>
+
+      <!-- Export -->
+      <div class="section">
+        <div class="sec-head">
+          <span class="sec-title">Export</span>
+          <span class="sec-desc">Options for exported files.</span>
+        </div>
+        <div class="panel">
+          <div class="row">
+            <div class="row-l">
+              <div class="row-name">Obsidian filename template</div>
+              <div class="row-help">Tokens: <code>{{date}}</code> (YYYY-MM-DD), <code>{{title}}</code> (conversation name). Default: <code>{{date}}-{{title}}</code></div>
+              <div class="row-help" id="obsidianFilenamePreview"></div>
+            </div>
+            <div class="row-r">
+              <input type="text" id="obsidianFilenameTemplate" placeholder="{{date}}-{{title}}" style="width:200px">
+            </div>
+          </div>
+          <div id="exportSettingsStatus" class="status" style="margin: 0 22px 16px;"></div>
+        </div>
+      </div>
+
+      <!-- Model Display -->
+      <div class="section">
+        <div class="sec-head">
+          <span class="sec-title">Model Display</span>
+          <span class="sec-desc">Which model name shows in the Model column.</span>
+        </div>
+        <div class="panel">
+          <div class="radios">
+            <label class="radio on" id="radio-original">
+              <div class="dot"></div>
+              <div>
+                <div class="radio-name">Original</div>
+                <div class="radio-desc">The model that first ran the conversation. Preserved even after a chat is bounced to a newer model. Bounced chats show a "*" marker.</div>
+              </div>
+              <input type="radio" name="modelDisplay" value="original" style="display:none">
+            </label>
+            <label class="radio" id="radio-current">
+              <div class="dot"></div>
+              <div>
+                <div class="radio-name">Current</div>
+                <div class="radio-desc">The model the conversation uses right now — what will run if you reopen the chat.</div>
+              </div>
+              <input type="radio" name="modelDisplay" value="current" style="display:none">
+            </label>
+          </div>
+          <div id="modelDisplayStatus" class="status" style="margin: 0 22px 16px;"></div>
+        </div>
+      </div>
+
+      <!-- Contact & Diagnostics -->
+      <div class="section">
+        <div class="sec-head"><span class="sec-title">Contact &amp; Diagnostics</span></div>
+        <div class="panel">
+          <div class="row">
+            <div class="row-l">
+              <div class="row-name">Report a problem</div>
+              <div class="row-help link-row">Found a bug or have feedback? <a href="#" id="emailDevLink">Email the developer</a>. When reporting, please <a href="#" id="generateDiagnosticsLink">attach a diagnostics file</a> — extension &amp; browser info, stored counts, and recent errors. All UUIDs are redacted and no conversation content is included.</div>
+            </div>
+          </div>
+          <div id="contactStatus" class="status" style="margin: 0 22px 16px;"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="options-init.js"></script>
+<script src="utils.js"></script>
+<script src="options.js"></script>
+</body>
+</html>

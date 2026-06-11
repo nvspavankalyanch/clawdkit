@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ClawdKit logo">
+  <defs>
+    <linearGradient id="ctkClay" x1="64" y1="0" x2="64" y2="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#E08A6A"></stop>
+      <stop offset="1" stop-color="#D2693F"></stop>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="29" fill="url(#ctkClay)"></rect>
+  <path d="M26 40C26 31.7157 32.7157 25 41 25H87C95.2843 25 102 31.7157 102 40V67C102 75.2843 95.2843 82 87 82H61L45 94.4C42.0357 96.66 38 94.55 38 90.84V81.5C31.05 79.7 26 73.4 26 66V40Z" fill="#FFF7ED"></path>
+  <path d="M64 39V57" stroke="#2D6A5A" stroke-width="9" stroke-linecap="round"></path>
+  <path d="M54 49L64 59L74 49" stroke="#2D6A5A" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"></path>
+  <path d="M50 67H78" stroke="#2D6A5A" stroke-width="9" stroke-linecap="round"></path>
+</svg>

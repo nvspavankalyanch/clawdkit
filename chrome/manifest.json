@@ -1,0 +1,65 @@
+{
+  "manifest_version": 3,
+  "name": "ClawdKit for Claude.ai",
+  "version": "1.4.3",
+  "description": "Export, search, and manage your Claude.ai conversations. Token counter, usage bars, folders, and Obsidian export - all in one.",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "scripting",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://claude.ai/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://claude.ai/*"
+      ],
+      "js": [
+        "jszip.min.js",
+        "utils.js",
+        "content.js",
+        "vendor/o200k_base.js",
+        "counter/constants.js",
+        "counter/bridge-client.js",
+        "counter/tokens.js",
+        "counter/ui.js",
+        "counter/main.js"
+      ],
+      "css": [
+        "content.css",
+        "counter/styles.css"
+      ]
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "options_page": "options.html",
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "browse.html",
+        "counter/bridge.js"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ]
+}
