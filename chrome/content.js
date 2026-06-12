@@ -321,7 +321,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             if (request.flattenArtifacts && !request.extractArtifacts) {
               const artifactsFolder = zip.folder('Artifacts');
               for (const artifact of artifactFiles) {
-                const filename = `${data.name || request.conversationId}_${artifact.filename}`;
+                const filename = `${data.name || request.conversationId}_${artifact.filename.replace('/', '_')}`;
                 artifactsFolder.file(filename, artifact.content);
               }
             }
@@ -574,7 +574,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 if (artifactFiles.length > 0) {
                   const artifactsFolder = zip.folder('Artifacts');
                   for (const artifact of artifactFiles) {
-                    artifactsFolder.file(`${folderName}_${artifact.filename}`, artifact.content);
+                    // artifact.filename may include a subfolder prefix (e.g. visuals/foo.svg)
+                    // — replace the slash with an underscore so it stays flat in Artifacts/
+                    artifactsFolder.file(`${folderName}_${artifact.filename.replace('/', '_')}`, artifact.content);
                   }
                 }
                 const { files: attFiles, manifest: attManifest } = extractAttachmentFiles(fullConv);
