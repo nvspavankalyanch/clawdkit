@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.4.4] - 2026-06-12
+
+### Features
+- **Inline visuals export** — Claude's new in-chat charts/diagrams/visualizations (`visualize:show_widget` tool calls carrying SVG/HTML in `input.widget_code`) are now exported in every format: rendered live in PDF (sandboxed iframe, sized from the SVG viewBox), embedded raw in Markdown/Obsidian (renders in Obsidian preview), labeled `[Visual: …]` blocks in Text, and saved as standalone `.svg`/`.html` files under a `visuals/` subfolder in ZIP artifact exports. The widgets reference claude.ai's host design system (`c-*` color ramps, `t`/`ts`/`th` text classes, `--color-*` variables), so that stylesheet — reconstructed from the visualize tool's own spec, pinned to the light Claude-chat palette regardless of export theme — plus the SVG `xmlns` are baked into every exported visual so they render outside claude.ai
+
+### Fixes
+- **PDF print preview now matches the on-screen preview (theme baked in)** — Chrome's print engine forces `prefers-color-scheme: light`, so the dark palette delivered via a media query never applied in the print dialog and dark-mode users got a washed-out light PDF. The selected theme is now baked into the generated HTML as `<html data-theme="dark|light">` with attribute-selector CSS (`:root[data-theme="dark"]`), plus `print-color-adjust: exact` and an `html`-level background so the full page renders dark. The popup/content-script flow detects claude.ai's active appearance (`detectClaudeTheme()` in content.js); the browse page already passed its own theme
+- **Duplicate artifacts from `create_file`** — a `create_file` tool_use carrying both `display_content` and `input.path`/`input.file_text` was extracted twice; the `input`-based branch is now a fallback that only fires when `display_content` is absent
+- **PDF/Print export — markdown rendering** — `_mdToHtml()` rewritten as a line-by-line block parser. Headings (`#`–`####`), unordered and ordered lists, blockquotes, tables, horizontal rules, links, and strikethrough now render correctly instead of appearing as raw markdown syntax in the print preview
+- **PDF export from browse page** — `exportConversationToPdf()` was called but never defined, causing a `ReferenceError` crash on every per-row PDF export from the browse page; the function is now implemented in `utils.js`
+- **PDF CSS** — added styles for `h2`–`h4`, `ul`/`ol`/`li`, `blockquote`, `hr`, `table`/`th`/`td`, `a`, `s` to properly render the new HTML elements
+
 ## [1.4.3] - 2026-06-11
 
 ### Fixes

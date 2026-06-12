@@ -80,6 +80,22 @@ function getLocalDateTimeString() {
   return `${year}${month}${day}-${hours}${minutes}${seconds}`;
 }
 
+// Detect claude.ai's active appearance so the PDF export matches what the user sees.
+function detectClaudeTheme() {
+  const de = document.documentElement;
+  if (de.classList.contains('dark') || de.getAttribute('data-mode') === 'dark') return 'dark';
+  if (de.classList.contains('light') || de.getAttribute('data-mode') === 'light') return 'light';
+  try {
+    const bg = getComputedStyle(document.body).backgroundColor;
+    const m = bg && bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+    if (m) {
+      const lum = 0.299 * +m[1] + 0.587 * +m[2] + 0.114 * +m[3];
+      return lum < 128 ? 'dark' : 'light';
+    }
+  } catch (e) { /* fall through */ }
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
   // Fetch conversation data
   async function fetchConversation(orgId, conversationId) {
     const url = `https://claude.ai/api/organizations/${orgId}/chat_conversations/${conversationId}?tree=True&rendering_mode=messages&render_all_tools=true`;
@@ -222,7 +238,8 @@ function getLocalDateTimeString() {
         if (request.format === 'pdf') {
           const html = convertToHTML(data, request.conversationId, {
             includeArtifacts: request.includeArtifacts,
-            includeThinking: request.includeThinking
+            includeThinking: request.includeThinking,
+            theme: detectClaudeTheme()
           });
           const win = window.open('about:blank', '_blank');
           if (!win) {
