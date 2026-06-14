@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "ClawdKit for Claude.ai",
-  "version": "1.4.3",
+  "version": "1.4.4",
   "description": "Export, search, and manage your Claude.ai conversations. Token counter, usage bars, folders, and Obsidian export - all in one.",
   "permissions": [
     "activeTab",

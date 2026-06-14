@@ -12,6 +12,8 @@ const {
   formatModelName,
   getModelBadgeClass,
   DEFAULT_MODEL_TIMELINE,
+  _mdToHtml,
+  _inlineHtml,
 } = utils;
 
 // Regression coverage for the bug fixed in v1.9.1: bash/web_search/repl
@@ -552,5 +554,182 @@ describe('convertToMarkdown — smoke test', () => {
     };
     const md = convertToMarkdown(data, true);
     expect(md).toContain('My Chat');
+  });
+});
+
+describe('_inlineHtml — inline transforms', () => {
+  it('wraps inline code', () => expect(_inlineHtml('use `npm i`')).toBe('use <code>npm i</code>'));
+  it('renders bold', () => expect(_inlineHtml('**bold**')).toBe('<strong>bold</strong>'));
+  it('renders italic', () => expect(_inlineHtml('*italic*')).toBe('<em>italic</em>'));
+  it('renders bold+italic', () => expect(_inlineHtml('***hi***')).toBe('<strong><em>hi</em></strong>'));
+  it('renders link', () => expect(_inlineHtml('[click](https://a.com)')).toBe('<a href="https://a.com">click</a>'));
+  it('renders strikethrough', () => expect(_inlineHtml('~~old~~')).toBe('<s>old</s>'));
+});
+
+describe('_mdToHtml — block elements', () => {
+  it('renders # as h2', () => expect(_mdToHtml('# Intro')).toContain('<h2>Intro</h2>'));
+  it('renders ## as h3', () => expect(_mdToHtml('## Sub')).toContain('<h3>Sub</h3>'));
+  it('renders ### as h4', () => expect(_mdToHtml('### Deep')).toContain('<h4>Deep</h4>'));
+  it('renders #### as h4 (capped)', () => expect(_mdToHtml('#### Deeper')).toContain('<h4>Deeper</h4>'));
+  it('renders unordered list', () => {
+    const out = _mdToHtml('- a\n- b');
+    expect(out).toContain('<ul>');
+    expect(out).toContain('<li>a</li>');
+    expect(out).toContain('<li>b</li>');
+  });
+  it('renders ordered list', () => {
+    const out = _mdToHtml('1. x\n2. y');
+    expect(out).toContain('<ol>');
+    expect(out).toContain('<li>x</li>');
+  });
+  it('renders blockquote', () => {
+    const out = _mdToHtml('> quoted text');
+    expect(out).toContain('<blockquote>');
+    expect(out).toContain('quoted text');
+  });
+  it('renders hr from ---', () => expect(_mdToHtml('---')).toBe('<hr>'));
+  it('renders hr from ***', () => expect(_mdToHtml('***')).toBe('<hr>'));
+  it('renders table with header and data rows', () => {
+    const out = _mdToHtml('| A | B |\n|---|---|\n| 1 | 2 |');
+    expect(out).toContain('<table>');
+    expect(out).toContain('<th>A</th>');
+    expect(out).toContain('<td>1</td>');
+  });
+  it('does not parse markdown inside fenced code block', () => {
+    const out = _mdToHtml('```\n# not heading\n**not bold**\n```');
+    expect(out).not.toContain('<h2>');
+    expect(out).not.toContain('<strong>');
+    expect(out).toContain('<pre><code>');
+  });
+  it('does not double-escape HTML entities in code blocks', () => {
+    const out = _mdToHtml('```\n<div>&</div>\n```');
+    expect(out).toContain('&lt;div&gt;&amp;&lt;/div&gt;');
+  });
+  it('wraps plain text in <p>', () => expect(_mdToHtml('Hello')).toBe('<p>Hello</p>'));
+  it('splits double newlines into separate paragraphs', () => {
+    const out = _mdToHtml('Para one\n\nPara two');
+    expect(out).toContain('<p>Para one</p>');
+    expect(out).toContain('<p>Para two</p>');
+  });
+  it('applies inline bold inside list items', () => {
+    const out = _mdToHtml('- **bold item**');
+    expect(out).toContain('<strong>bold item</strong>');
+  });
+});
+
+describe('convertToHTML — theme baking', () => {
+  const data = {
+    name: 'Theme Test',
+    model: 'claude-sonnet-4-5-20250929',
+    created_at: '2026-06-01T12:00:00Z',
+    current_leaf_message_uuid: 'm1',
+    chat_messages: [
+      {
+        uuid: 'm1',
+        sender: 'human',
+        content: [{ type: 'text', text: 'hi' }],
+        parent_message_uuid: '00000000-0000-0000-0000-000000000000',
+      },
+    ],
+  };
+  it('emits data-theme="dark" when theme is dark', () => {
+    expect(utils.convertToHTML(data, 'c1', { theme: 'dark' })).toContain('<html lang="en" data-theme="dark">');
+  });
+  it('emits data-theme="light" when theme is light', () => {
+    expect(utils.convertToHTML(data, 'c1', { theme: 'light' })).toContain('<html lang="en" data-theme="light">');
+  });
+  it('omits data-theme when no theme given', () => {
+    expect(utils.convertToHTML(data, 'c1', {})).toContain('<html lang="en">');
+  });
+  it('CSS contains the attribute-selector dark palette (print-safe)', () => {
+    const html = utils.convertToHTML(data, 'c1', { theme: 'dark' });
+    expect(html).toContain(':root[data-theme="dark"]');
+  });
+});
+
+describe('inline visuals (visualize:show_widget)', () => {
+  const svgWidget = {
+    type: 'tool_use',
+    name: 'visualize:show_widget',
+    input: {
+      title: 'ai_history_timeline',
+      widget_code: '\n<svg width="100%" viewBox="0 0 680 920" role="img"><title>Timeline</title><rect/></svg>',
+    },
+    integration_name: 'visualize',
+    is_mcp_app: true,
+  };
+  const readMe = {
+    type: 'tool_use',
+    name: 'visualize:read_me',
+    input: { modules: ['diagram', 'chart'] },
+    integration_name: 'visualize',
+  };
+
+  it('extracts show_widget as a visual artifact, skips read_me', () => {
+    const arts = extractArtifactsFromMessage({ content: [readMe, svgWidget] });
+    expect(arts).toHaveLength(1);
+    expect(arts[0].type).toBe('visual');
+    expect(arts[0].title).toBe('ai_history_timeline');
+    expect(arts[0].language).toBe('svg');
+    expect(arts[0].content.startsWith('<svg')).toBe(true);
+  });
+
+  it('detects html widgets when code is not svg', () => {
+    const arts = extractArtifactsFromMessage({
+      content: [{ type: 'tool_use', name: 'visualize:show_widget', input: { title: 'w', widget_code: '<div>hi</div>' } }],
+    });
+    expect(arts[0].language).toBe('html');
+  });
+
+  const data = {
+    name: 'Viz Chat',
+    created_at: '2026-06-12T07:00:00Z',
+    current_leaf_message_uuid: 'm2',
+    chat_messages: [
+      { uuid: 'm1', sender: 'human', content: [{ type: 'text', text: 'chart please' }], parent_message_uuid: '00000000-0000-0000-0000-000000000000' },
+      { uuid: 'm2', sender: 'assistant', content: [{ type: 'text', text: 'Here it is' }, svgWidget], parent_message_uuid: 'm1' },
+    ],
+  };
+
+  it('extractArtifactFiles places visuals in a visuals/ subfolder with .svg extension', () => {
+    const files = extractArtifactFiles(data, 'original');
+    expect(files).toHaveLength(1);
+    expect(files[0].filename).toBe('visuals/ai_history_timeline.svg');
+  });
+
+  it('convertToHTML embeds the visual as a sandboxed iframe, not a code block', () => {
+    const html = utils.convertToHTML(data, 'c1', {});
+    expect(html).toContain('class="visual-frame" sandbox');
+    expect(html).toContain('aspect-ratio:680/920');
+    expect(html).not.toContain('<pre><code>&lt;svg');
+  });
+
+  it('convertToMarkdown embeds the raw markup under a Visual heading', () => {
+    const md = convertToMarkdown(data, false);
+    expect(md).toContain('#### 📊 Visual: ai_history_timeline');
+    expect(md).toContain('<svg width="100%"');
+  });
+});
+
+describe('visual SVG styling (claude.ai host CSS baked in)', () => {
+  const widget = (code) => ({
+    content: [{ type: 'tool_use', name: 'visualize:show_widget', input: { title: 'w', widget_code: code } }],
+  });
+
+  it('injects the host stylesheet and xmlns into extracted SVG', () => {
+    const arts = extractArtifactsFromMessage(widget('<svg viewBox="0 0 10 10"><text class="th">hi</text></svg>'));
+    expect(arts[0].content).toContain('xmlns="http://www.w3.org/2000/svg"');
+    expect(arts[0].content).toContain('svg .th{font-size:14px;font-weight:500;fill:#1A1915;}');
+    expect(arts[0].content).toContain('g.c-purple>rect');
+  });
+
+  it('does not duplicate an existing xmlns', () => {
+    const arts = extractArtifactsFromMessage(widget('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"></svg>'));
+    expect(arts[0].content.match(/xmlns=/g)).toHaveLength(1);
+  });
+
+  it('leaves html widgets unmodified', () => {
+    const arts = extractArtifactsFromMessage(widget('<div>plain</div>'));
+    expect(arts[0].content).toBe('<div>plain</div>');
   });
 });

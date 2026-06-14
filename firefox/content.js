@@ -80,6 +80,22 @@ function getLocalDateTimeString() {
   return `${year}${month}${day}-${hours}${minutes}${seconds}`;
 }
 
+// Detect claude.ai's active appearance so the PDF export matches what the user sees.
+function detectClaudeTheme() {
+  const de = document.documentElement;
+  if (de.classList.contains('dark') || de.getAttribute('data-mode') === 'dark') return 'dark';
+  if (de.classList.contains('light') || de.getAttribute('data-mode') === 'light') return 'light';
+  try {
+    const bg = getComputedStyle(document.body).backgroundColor;
+    const m = bg && bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+    if (m) {
+      const lum = 0.299 * +m[1] + 0.587 * +m[2] + 0.114 * +m[3];
+      return lum < 128 ? 'dark' : 'light';
+    }
+  } catch (e) { /* fall through */ }
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
   // Fetch conversation data
   async function fetchConversation(orgId, conversationId) {
     const url = `https://claude.ai/api/organizations/${orgId}/chat_conversations/${conversationId}?tree=True&rendering_mode=messages&render_all_tools=true`;
@@ -132,6 +148,8 @@ function getLocalDateTimeString() {
     return await res.arrayBuffer();
   }
 
+  // Download all uploaded files in a conversation and add to folder.
+  // prefix (optional) is prepended to each filename — used in flat-mode batch exports.
   async function addConversationFilesToFolder(folder, orgId, convData, prefix = '') {
     const files = collectConversationFiles(convData);
     const blobItems = [];
@@ -167,7 +185,7 @@ function getLocalDateTimeString() {
   }
 
   // Handle messages from popup
-  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   // Auto-detect organization ID from Claude.ai API
   if (request.action === 'detectOrgId') {
     console.log('Auto-detecting organization ID...');
@@ -222,7 +240,8 @@ function getLocalDateTimeString() {
         if (request.format === 'pdf') {
           const html = convertToHTML(data, request.conversationId, {
             includeArtifacts: request.includeArtifacts,
-            includeThinking: request.includeThinking
+            includeThinking: request.includeThinking,
+            theme: detectClaudeTheme()
           });
           const win = window.open('about:blank', '_blank');
           if (!win) {
@@ -302,7 +321,7 @@ function getLocalDateTimeString() {
             if (request.flattenArtifacts && !request.extractArtifacts) {
               const artifactsFolder = zip.folder('Artifacts');
               for (const artifact of artifactFiles) {
-                const filename = `${data.name || request.conversationId}_${artifact.filename}`;
+                const filename = `${data.name || request.conversationId}_${artifact.filename.replace('/', '_')}`;
                 artifactsFolder.file(filename, artifact.content);
               }
             }
@@ -345,7 +364,7 @@ function getLocalDateTimeString() {
             recordExportTimestamp(request.conversationId);
             sendResponse({ success: true });
           } else {
-            // No artifacts found — check for uploaded attachments
+            // No artifacts — generate conversation content then check for attachments/wiggle
             let content, filename, type;
             switch (request.format) {
               case 'markdown':
@@ -482,7 +501,7 @@ function getLocalDateTimeString() {
     
       if (request.action === 'exportAllConversations') {
     console.log('Export all conversations request received:', request);
-
+    
     // PDF bulk export is not supported — single conversations only
     if (request.format === 'pdf') {
       sendResponse({ success: false, error: 'PDF export works one conversation at a time. Select a conversation and use "Export current" to export as PDF.' });
@@ -549,46 +568,36 @@ function getLocalDateTimeString() {
 
               // Flat export: use Chats and Artifacts top-level folders
               if (request.flattenArtifacts && !request.extractArtifacts) {
-                // Add chat file to Chats folder if chats are enabled
                 if (request.includeChats !== false) {
-                  const chatsFolder = zip.folder('Chats');
-                  chatsFolder.file(conversationFilename, conversationContent);
+                  zip.folder('Chats').file(conversationFilename, conversationContent);
                 }
-
-                // Add artifacts to Artifacts folder with conversation name prefix
                 if (artifactFiles.length > 0) {
                   const artifactsFolder = zip.folder('Artifacts');
                   for (const artifact of artifactFiles) {
-                    const artifactFilename = `${folderName}_${artifact.filename}`;
-                    artifactsFolder.file(artifactFilename, artifact.content);
+                    // artifact.filename may include a subfolder prefix (e.g. visuals/foo.svg)
+                    // — replace the slash with an underscore so it stays flat in Artifacts/
+                    artifactsFolder.file(`${folderName}_${artifact.filename.replace('/', '_')}`, artifact.content);
                   }
                 }
-
-                // Add uploaded files to Attachments folder with conversation name prefix
                 const { files: attFiles, manifest: attManifest } = extractAttachmentFiles(fullConv);
                 const attachmentsFolder = zip.folder('Attachments');
                 for (const af of attFiles) attachmentsFolder.file(`${folderName}_${af.filename}`, af.content);
                 if (attManifest) attachmentsFolder.file(`${folderName}_binary_uploads.md`, attManifest);
+                // Uploaded files: prefix with conversation name to avoid collisions in flat Attachments/ folder
                 await addConversationFilesToFolder(attachmentsFolder, request.orgId, fullConv, `${folderName}_`);
               }
               // Nested export: create per-conversation folders with artifacts subfolder
               else if (request.extractArtifacts) {
                 const convFolder = zip.folder(folderName);
-
-                // Add conversation file only if includeChats is true
                 if (request.includeChats !== false) {
                   convFolder.file(conversationFilename, conversationContent);
                 }
-
-                // Add artifact files in nested artifacts subfolder
                 if (artifactFiles.length > 0) {
                   const artifactsFolder = request.includeChats !== false ? convFolder.folder('artifacts') : convFolder;
                   for (const artifact of artifactFiles) {
                     artifactsFolder.file(artifact.filename, artifact.content);
                   }
                 }
-
-                // Add pasted text attachments and uploaded files
                 const { files: attFiles, manifest: attManifest } = extractAttachmentFiles(fullConv);
                 const attachmentsFolder = convFolder.folder('attachments');
                 for (const af of attFiles) attachmentsFolder.file(af.filename, af.content);

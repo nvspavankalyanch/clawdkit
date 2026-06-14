@@ -80,6 +80,22 @@ function getLocalDateTimeString() {
   return `${year}${month}${day}-${hours}${minutes}${seconds}`;
 }
 
+// Detect claude.ai's active appearance so the PDF export matches what the user sees.
+function detectClaudeTheme() {
+  const de = document.documentElement;
+  if (de.classList.contains('dark') || de.getAttribute('data-mode') === 'dark') return 'dark';
+  if (de.classList.contains('light') || de.getAttribute('data-mode') === 'light') return 'light';
+  try {
+    const bg = getComputedStyle(document.body).backgroundColor;
+    const m = bg && bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+    if (m) {
+      const lum = 0.299 * +m[1] + 0.587 * +m[2] + 0.114 * +m[3];
+      return lum < 128 ? 'dark' : 'light';
+    }
+  } catch (e) { /* fall through */ }
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
   // Fetch conversation data
   async function fetchConversation(orgId, conversationId) {
     const url = `https://claude.ai/api/organizations/${orgId}/chat_conversations/${conversationId}?tree=True&rendering_mode=messages&render_all_tools=true`;
@@ -224,7 +240,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         if (request.format === 'pdf') {
           const html = convertToHTML(data, request.conversationId, {
             includeArtifacts: request.includeArtifacts,
-            includeThinking: request.includeThinking
+            includeThinking: request.includeThinking,
+            theme: detectClaudeTheme()
           });
           const win = window.open('about:blank', '_blank');
           if (!win) {
@@ -304,7 +321,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             if (request.flattenArtifacts && !request.extractArtifacts) {
               const artifactsFolder = zip.folder('Artifacts');
               for (const artifact of artifactFiles) {
-                const filename = `${data.name || request.conversationId}_${artifact.filename}`;
+                const filename = `${data.name || request.conversationId}_${artifact.filename.replace('/', '_')}`;
                 artifactsFolder.file(filename, artifact.content);
               }
             }
@@ -557,7 +574,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 if (artifactFiles.length > 0) {
                   const artifactsFolder = zip.folder('Artifacts');
                   for (const artifact of artifactFiles) {
-                    artifactsFolder.file(`${folderName}_${artifact.filename}`, artifact.content);
+                    // artifact.filename may include a subfolder prefix (e.g. visuals/foo.svg)
+                    // — replace the slash with an underscore so it stays flat in Artifacts/
+                    artifactsFolder.file(`${folderName}_${artifact.filename.replace('/', '_')}`, artifact.content);
                   }
                 }
                 const { files: attFiles, manifest: attManifest } = extractAttachmentFiles(fullConv);

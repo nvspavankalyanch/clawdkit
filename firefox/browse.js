@@ -2073,7 +2073,7 @@ async function exportAllFiltered() {
             if (artifactFiles.length > 0) {
               const artifactsFolder = zip.folder('Artifacts');
               for (const artifact of artifactFiles) {
-                const artifactFilename = `${safeName}_${artifact.filename}`;
+                const artifactFilename = `${safeName}_${artifact.filename.replace('/', '_')}`;
                 artifactsFolder.file(artifactFilename, artifact.content);
               }
             }

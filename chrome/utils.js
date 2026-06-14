@@ -125,6 +125,13 @@ function convertToMarkdown(data, includeMetadata, conversationId = null, include
 
     // Render all artifacts found in the message
     for (const artifact of messageArtifacts) {
+      // Inline visuals: embed the raw SVG/HTML so Obsidian/Typora render it.
+      if (artifact.type === 'visual') {
+        markdown += `#### 📊 Visual: ${artifact.title}\n\n`;
+        markdown += `${artifact.content}\n\n`;
+        continue;
+      }
+
       markdown += `#### 📦 Artifact: ${artifact.title}\n`;
       markdown += `**Type:** ${artifact.type} | **Language:** ${artifact.language}\n\n`;
 
@@ -202,9 +209,10 @@ function convertToText(data, includeMetadata, includeArtifacts = true, includeTh
     // Add artifacts if present
     if (artifacts.length > 0) {
       for (const artifact of artifacts) {
-        text += `\n[Artifact: ${artifact.title} (${artifact.language})]\n`;
+        const label = artifact.type === 'visual' ? 'Visual' : 'Artifact';
+        text += `\n[${label}: ${artifact.title} (${artifact.language})]\n`;
         text += `${artifact.content}\n`;
-        text += `[End Artifact]\n`;
+        text += `[End ${label}]\n`;
       }
     }
 
@@ -237,33 +245,107 @@ function _htmlEsc(s) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-// Internal: convert a subset of Markdown to HTML for use in the PDF output.
-// Handles fenced code blocks, inline code, bold/italic, and paragraphs.
-// Not a full parser — covers the patterns Claude actually generates.
-function _mdToHtml(text) {
-  if (!text) return '';
-  const codes = [];
-  // Extract fenced code blocks first so their content is not further processed
-  let s = text
-    .replace(/```\w*\n([\s\S]*?)```/g, (_, c) => { codes.push(_htmlEsc(c)); return `\x01${codes.length - 1}`; })
-    .replace(/```([\s\S]*?)```/g, (_, c) => { codes.push(_htmlEsc(c)); return `\x01${codes.length - 1}`; });
-  // HTML-escape the rest
-  s = _htmlEsc(s);
-  // Inline code
+// Internal: apply inline Markdown → HTML to an already-HTML-escaped string.
+// Handles inline code, bold+italic, bold, italic, links, and strikethrough.
+function _inlineHtml(s) {
   s = s.replace(/`([^`\n]+)`/g, '<code>$1</code>');
-  // Bold + italic
   s = s.replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>');
   s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   s = s.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
-  // Paragraphs from double newlines
-  s = s.split(/\n\n+/).map(para => {
-    const p = para.trim();
-    if (!p) return '';
-    if (/^\x01\d+$/.test(p)) return p; // bare code block placeholder
-    return '<p>' + p.replace(/\n/g, '<br>') + '</p>';
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+  s = s.replace(/~~([^~]+)~~/g, '<s>$1</s>');
+  return s;
+}
+
+// Internal: convert Markdown to HTML for use in the PDF output.
+// Line-by-line block parser: headings, lists, blockquotes, tables, HR, code
+// fences, and paragraphs. Inline transforms (bold, italic, links, etc.) are
+// applied per block via _inlineHtml. Covers the patterns Claude actually uses.
+function _mdToHtml(text) {
+  if (!text) return '';
+  const codes = [];
+  // Extract fenced code blocks first so their content is never re-processed.
+  let s = text
+    .replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, c) => { codes.push(_htmlEsc(c)); return `\x01${codes.length - 1}`; })
+    .replace(/```([\s\S]*?)```/g,         (_, c)       => { codes.push(_htmlEsc(c)); return `\x01${codes.length - 1}`; });
+
+  const lines = s.split('\n');
+  const blocks = [];
+  const paraBuf = [];
+  let i = 0;
+
+  const flush = () => { if (paraBuf.length) { blocks.push({ type: 'para', lines: paraBuf.splice(0) }); } };
+
+  while (i < lines.length) {
+    const raw = lines[i];
+    // Standalone code-block placeholder
+    if (/^\x01\d+$/.test(raw.trim())) {
+      flush(); blocks.push({ type: 'code', idx: +raw.trim().slice(1) }); i++; continue;
+    }
+    // Blank line → paragraph break
+    if (!raw.trim()) { flush(); i++; continue; }
+    // Heading: # → h2, ## → h3, ###/#### → h4 (h1 is reserved for the doc title)
+    const hm = raw.match(/^(#{1,4})\s+(.*)/);
+    if (hm) { flush(); blocks.push({ type: 'h', level: Math.min(hm[1].length + 1, 4), text: hm[2] }); i++; continue; }
+    // HR
+    if (/^[-*_]{3,}\s*$/.test(raw.trim())) { flush(); blocks.push({ type: 'hr' }); i++; continue; }
+    // Blockquote
+    if (/^> ?/.test(raw)) {
+      flush();
+      const bq = [];
+      while (i < lines.length && /^> ?/.test(lines[i])) { bq.push(lines[i].replace(/^> ?/, '')); i++; }
+      blocks.push({ type: 'bq', lines: bq }); continue;
+    }
+    // Unordered list
+    if (/^[ \t]*[-*] /.test(raw)) {
+      flush();
+      const items = [];
+      while (i < lines.length && /^[ \t]*[-*] /.test(lines[i])) { items.push(lines[i].replace(/^[ \t]*[-*] /, '')); i++; }
+      blocks.push({ type: 'ul', items }); continue;
+    }
+    // Ordered list
+    if (/^[ \t]*\d+\. /.test(raw)) {
+      flush();
+      const items = [];
+      while (i < lines.length && /^[ \t]*\d+\. /.test(lines[i])) { items.push(lines[i].replace(/^[ \t]*\d+\. /, '')); i++; }
+      blocks.push({ type: 'ol', items }); continue;
+    }
+    // Table (header row followed immediately by a separator row)
+    if (/^\s*\|/.test(raw) && i + 1 < lines.length && /^\s*\|[\s\-:|]+\|/.test(lines[i + 1])) {
+      flush();
+      const rows = [];
+      while (i < lines.length && /^\s*\|/.test(lines[i])) { rows.push(lines[i]); i++; }
+      blocks.push({ type: 'table', rows }); continue;
+    }
+    paraBuf.push(raw); i++;
+  }
+  flush();
+
+  // HTML-escape a text fragment and apply inline transforms.
+  const esc = t => _inlineHtml(_htmlEsc(t));
+  // For a line that may contain \x01N placeholders mid-text, escape each non-placeholder part.
+  const escLine = line => line.split(/(\x01\d+)/).map(p => /^\x01\d+$/.test(p) ? p : _inlineHtml(_htmlEsc(p))).join('');
+
+  const out = blocks.map(b => {
+    if (b.type === 'code')  return `<pre><code>${codes[b.idx]}</code></pre>`;
+    if (b.type === 'hr')    return '<hr>';
+    if (b.type === 'h')     return `<h${b.level}>${esc(b.text)}</h${b.level}>`;
+    if (b.type === 'bq')    return `<blockquote>${b.lines.map(escLine).join('<br>')}</blockquote>`;
+    if (b.type === 'ul')    return `<ul>${b.items.map(it => `<li>${esc(it)}</li>`).join('')}</ul>`;
+    if (b.type === 'ol')    return `<ol>${b.items.map(it => `<li>${esc(it)}</li>`).join('')}</ol>`;
+    if (b.type === 'table') {
+      const rows = b.rows.map(r => r.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim()));
+      return '<table>' + rows.map((cells, ri) => {
+        if (ri === 1) return ''; // separator row
+        const tag = ri === 0 ? 'th' : 'td';
+        return '<tr>' + cells.map(c => `<${tag}>${esc(c)}</${tag}>`).join('') + '</tr>';
+      }).join('') + '</table>';
+    }
+    return `<p>${b.lines.map(escLine).join('<br>')}</p>`;
   }).join('');
-  // Restore code blocks
-  return s.replace(/\x01(\d+)/g, (_, i) => `<pre><code>${codes[+i]}</code></pre>`);
+
+  // Restore any code placeholders that survived into non-code blocks (edge case).
+  return out.replace(/\x01(\d+)/g, (_, idx) => `<pre><code>${codes[+idx]}</code></pre>`);
 }
 
 // CSS for the generated print HTML — embedded so the file is self-contained.
@@ -273,12 +355,21 @@ const _PDF_CSS = `
   --bg:#fefefe;--text:#1c1a17;--muted:#72685e;--border:#e4ded5;
   --code-bg:#f4f1eb;--accent:#c2603d;--accent2:#9d4c2e;
 }
+/* Theme is baked in via <html data-theme="..."> because Chrome's print engine
+   forces prefers-color-scheme to light — a dark media query never matches in the
+   print preview, so attribute selectors are the only way a dark PDF can render. */
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#1a1713;--text:#e8e2d8;--muted:#9a9080;--border:#302822;
+  --code-bg:#252018;--accent:#d77a52;--accent2:#e89068;
+}
 @media(prefers-color-scheme:dark){
-  :root{
+  :root:not([data-theme="light"]){
     --bg:#1a1713;--text:#e8e2d8;--muted:#9a9080;--border:#302822;
     --code-bg:#252018;--accent:#d77a52;--accent2:#e89068;
   }
 }
+html{background:var(--bg);}
 body{
   background:var(--bg);color:var(--text);
   font-family:Georgia,'Times New Roman',serif;
@@ -351,30 +442,115 @@ pre code{background:none;padding:0;font-size:inherit;}
 }
 .artifact-lang{font-weight:400;opacity:.65;}
 .artifact pre{border-radius:0;margin:0;}
+.visual{margin:16px 0;border:1px solid var(--border);border-radius:9px;overflow:hidden;break-inside:avoid;}
+.visual-frame{display:block;width:100%;border:0;background:#FAF9F5;}
+.text-content h2{font-size:20px;font-weight:700;letter-spacing:-.01em;margin:1.1em 0 .35em;}
+.text-content h3{font-size:17px;font-weight:600;margin:1em 0 .3em;}
+.text-content h4{font-size:15px;font-weight:600;margin:.9em 0 .25em;}
+.text-content ul,.text-content ol{margin:.6em 0 .6em 1.5em;padding:0;}
+.text-content li{margin:.2em 0;line-height:1.7;}
+.text-content blockquote{margin:.7em 0;padding:.5em .9em;border-left:3px solid var(--accent);color:var(--muted);font-style:italic;}
+.text-content hr{border:none;border-top:1px solid var(--border);margin:1.2em 0;}
+.text-content table{border-collapse:collapse;width:100%;margin:.8em 0;font-size:13px;}
+.text-content th,.text-content td{border:1px solid var(--border);padding:6px 10px;text-align:left;}
+.text-content th{background:var(--code-bg);font-weight:600;}
+.text-content a{color:var(--accent);text-decoration:underline;}
+.text-content s{opacity:.6;}
+/* Zero the browser page margins so the themed background bleeds to the sheet
+   edge (otherwise dark pages get a mismatched frame from the default white/dark
+   margin band). Text spacing is handled by .conversation padding instead. */
+@page{margin:0;}
 @media print{
-  /* Force the light "paper" palette regardless of the viewer's dark mode, and
-     tell the browser to actually render backgrounds/borders (suppressed by
-     default when printing) so code blocks, artifacts and other shaded UI
-     survive into the PDF instead of collapsing to plain text. */
-  :root{
-    --bg:#fff;--text:#1c1a17;--muted:#72685e;--border:#e4ded5;
-    --code-bg:#f4f1eb;--accent:#c2603d;--accent2:#9d4c2e;
-  }
+  /* Render backgrounds/borders exactly so code blocks and shaded UI survive
+     into the PDF. Colors follow the user's active theme (dark or light) rather
+     than being overridden — so dark-mode users get a dark PDF, light-mode users
+     get a light PDF. Messages are allowed to break across pages so a very long
+     response doesn't push everything to page 2, leaving page 1 blank. */
   *,*::before,*::after{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+  html,body{background:var(--bg)!important;}
   .print-bar{display:none!important;}
   body{max-width:100%;font-size:11pt;}
-  .conversation{padding:0;}
-  .message{break-inside:avoid;}
-  pre{font-size:9pt;white-space:pre-wrap;word-break:break-all;}
+  .conversation{padding:16mm 18mm;}
+  pre{font-size:9pt;white-space:pre-wrap;word-break:break-word;}
   a{color:inherit!important;text-decoration:none;}
 }
 `.trim();
+
+// Stylesheet for Claude's inline visuals (visualize:show_widget). The widget
+// markup references claude.ai's host CSS — pre-built SVG classes (t/ts/th,
+// box/arr/leader, c-{ramp} color classes) and --color-* variables — none of
+// which exist outside claude.ai. Reconstructed here from the visualize tool's
+// own design-system spec, pinned to the light-mode palette so visuals always
+// look like they do in Claude chat regardless of the export theme.
+// Ramp stops: [50 fill, 600 stroke/subtitle, 800 title]
+const _VISUAL_RAMPS = {
+  purple: ['#EEEDFE', '#534AB7', '#3C3489'],
+  teal:   ['#E1F5EE', '#0F6E56', '#085041'],
+  coral:  ['#FAECE7', '#993C1D', '#712B13'],
+  pink:   ['#FBEAF0', '#993556', '#72243E'],
+  gray:   ['#F1EFE8', '#5F5E5A', '#444441'],
+  blue:   ['#E6F1FB', '#185FA5', '#0C447C'],
+  green:  ['#EAF3DE', '#3B6D11', '#27500A'],
+  amber:  ['#FAEEDA', '#854F0B', '#633806'],
+  red:    ['#FCEBEB', '#A32D2D', '#791F1F'],
+};
+
+const _VISUAL_CSS = `
+svg,:root{
+  --color-background-primary:#FFFFFF;--color-background-secondary:#F5F4EF;--color-background-tertiary:#F0EEE5;
+  --color-background-info:#E6F1FB;--color-background-danger:#FCEBEB;--color-background-success:#EAF3DE;--color-background-warning:#FAEEDA;
+  --color-text-primary:#1A1915;--color-text-secondary:#5F5E5A;--color-text-tertiary:#888780;
+  --color-text-info:#0C447C;--color-text-danger:#791F1F;--color-text-success:#27500A;--color-text-warning:#633806;
+  --color-border-primary:rgba(26,25,21,.4);--color-border-secondary:rgba(26,25,21,.3);--color-border-tertiary:rgba(26,25,21,.15);
+  --color-border-info:#378ADD;--color-border-danger:#E24B4A;--color-border-success:#97C459;--color-border-warning:#EF9F27;
+  --font-sans:system-ui,-apple-system,'Segoe UI',sans-serif;--font-serif:Georgia,serif;--font-mono:ui-monospace,monospace;
+  --border-radius-md:8px;--border-radius-lg:12px;--border-radius-xl:16px;
+  --p:#1A1915;--s:#5F5E5A;--t:rgba(26,25,21,.15);--bg2:#F5F4EF;--b:rgba(26,25,21,.3);
+}
+svg text{font-family:var(--font-sans);}
+svg .t{font-size:14px;font-weight:400;fill:#1A1915;}
+svg .ts{font-size:12px;font-weight:400;fill:#5F5E5A;}
+svg .th{font-size:14px;font-weight:500;fill:#1A1915;}
+svg .box{fill:#F5F4EF;stroke:rgba(26,25,21,.3);}
+svg .arr{stroke:rgba(26,25,21,.3);stroke-width:1.5;fill:none;}
+svg .leader{stroke:rgba(26,25,21,.15);stroke-width:.5;stroke-dasharray:4 3;fill:none;}
+` + Object.entries(_VISUAL_RAMPS).map(([name, [fill, stroke, title]]) => `
+g.c-${name}>rect,g.c-${name}>circle,g.c-${name}>ellipse,rect.c-${name},circle.c-${name},ellipse.c-${name}{fill:${fill};stroke:${stroke};}
+g.c-${name}>text.th,g.c-${name}>text.t,g.c-${name}>.th,g.c-${name}>.t{fill:${title};}
+g.c-${name}>text.ts,g.c-${name}>.ts{fill:${stroke};}`).join('') + `
+`;
+
+// Bake the host stylesheet into a standalone SVG so it renders correctly
+// outside claude.ai (PDF iframe, exported .svg files, Obsidian embeds).
+function _styleSvgVisual(code) {
+  if (code.includes(_VISUAL_CSS)) return code;
+  // Widgets are authored as HTML fragments where the SVG namespace is implied;
+  // a standalone .svg file needs it explicitly or browsers render raw XML.
+  return code.replace(/(<svg\b[^>]*?)(\s*\/?>)/i, (m, open, close) =>
+    `${/\bxmlns\s*=/.test(open) ? open : open + ' xmlns="http://www.w3.org/2000/svg"'}${close}<style>${_VISUAL_CSS}</style>`);
+}
+
+// Render an inline visual (visualize:show_widget SVG/HTML) for the PDF page.
+// The markup comes from conversation data, so it is untrusted — it is embedded
+// in a fully sandboxed iframe (no scripts, opaque origin) rather than inlined,
+// because the browse-page print tab shares the extension's origin.
+function _visualHtml(art) {
+  const code = art.content;
+  let sizing = 'height:480px;';
+  const vb = code.match(/viewBox\s*=\s*["']\s*[\d.+-]+[\s,]+[\d.+-]+[\s,]+([\d.+-]+)[\s,]+([\d.+-]+)/i);
+  if (vb && +vb[1] > 0 && +vb[2] > 0) sizing = `aspect-ratio:${+vb[1]}/${+vb[2]};height:auto;`;
+  // Fixed light claude.ai-style canvas regardless of export theme — visuals
+  // are designed against Claude chat's palette, not the PDF's.
+  const doc = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>html,body{margin:0;padding:8px;background:#FAF9F5;color:#1A1915;font-family:system-ui,sans-serif}svg{display:block;width:100%;height:auto}${_VISUAL_CSS}</style></head><body>${code}</body></html>`;
+  return `<div class="visual"><div class="artifact-hd">📊 ${_htmlEsc(art.title)}<span class="artifact-lang"> · visual</span></div><iframe class="visual-frame" sandbox style="${sizing}" srcdoc="${_htmlEsc(doc)}"></iframe></div>`;
+}
 
 // Generate a self-contained, print-ready HTML document for a single conversation.
 // Opening the returned HTML in a browser tab and clicking "Print" produces a clean PDF.
 function convertToHTML(data, conversationId, options) {
   const includeArtifacts = !options || options.includeArtifacts !== false;
   const includeThinking  = !options || options.includeThinking  !== false;
+  const theme = options && (options.theme === 'dark' || options.theme === 'light') ? options.theme : '';
 
   const title   = data.name || 'Untitled Conversation';
   const model   = typeof formatModelName === 'function' ? formatModelName(data.model || inferModel(data)) : (data.model || '');
@@ -418,10 +594,14 @@ function convertToHTML(data, conversationId, options) {
       }
     }
 
-    // Artifacts
+    // Artifacts (and inline visuals)
     if (includeArtifacts) {
       const artifacts = typeof extractArtifactsFromMessage === 'function' ? extractArtifactsFromMessage(message) : [];
       for (const art of artifacts) {
+        if (art.type === 'visual') {
+          contentHtml += _visualHtml(art);
+          continue;
+        }
         contentHtml += `<div class="artifact"><div class="artifact-hd">📦 ${_htmlEsc(art.title)}<span class="artifact-lang"> · ${_htmlEsc(art.language || art.type || '')}</span></div><pre><code>${_htmlEsc(art.content)}</code></pre></div>`;
       }
     }
@@ -436,7 +616,7 @@ function convertToHTML(data, conversationId, options) {
   ].filter(Boolean).join('<span class="sep"> · </span>');
 
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="en"${theme ? ` data-theme="${theme}"` : ''}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -455,6 +635,24 @@ function convertToHTML(data, conversationId, options) {
 </div>
 </body>
 </html>`;
+}
+
+// Open a print-ready HTML document in a new tab for a single conversation.
+// Used by browse.js (and any other non-content-script context). Throws if
+// window.open is blocked. Returns { filename } on success.
+function exportConversationToPdf(data, conversationId, options) {
+  const html = convertToHTML(data, conversationId, options);
+  const win = window.open('about:blank', '_blank');
+  if (!win) throw new Error('PDF preview was blocked. Allow popups for this page and try again.');
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  // Wire the print button from the opener context — about:blank may inherit CSP from the opener.
+  const printBtn = win.document.getElementById('cc-print-btn');
+  if (printBtn) printBtn.addEventListener('click', () => win.print());
+  win.focus();
+  const safeTitle = (options && options.filename) || data.name || conversationId || 'conversation';
+  return { filename: `${safeTitle}.pdf` };
 }
 
 // Convert to Obsidian-compatible Markdown: standard Markdown body with YAML frontmatter.
@@ -577,8 +775,9 @@ function extractArtifactsFromMessage(message) {
       }
 
       // Analysis Tool / Computer Use create_file: output via input.path + input.file_text
-      // (distinct from the skills-runner create_file that uses display_content, handled above)
-      if (content.type === 'tool_use' && content.name === 'create_file' && content.input) {
+      // (distinct from the skills-runner create_file that uses display_content, handled
+      // above — skip when display_content exists or the artifact would be duplicated)
+      if (content.type === 'tool_use' && content.name === 'create_file' && content.input && !content.display_content) {
         const path = content.input.path || '';
         const fileText = content.input.file_text || '';
         if (path && fileText) {
@@ -600,6 +799,23 @@ function extractArtifactsFromMessage(message) {
             content: fileText.trim(),
           });
         }
+      }
+
+      // Claude's inline visuals ("custom visuals in chat"): visualize:show_widget
+      // carries the rendered SVG/HTML markup in input.widget_code.
+      // visualize:read_me is just the tool loading its instructions — the
+      // widget_code guard skips it.
+      if (content.type === 'tool_use' && content.name === 'visualize:show_widget' &&
+          content.input && content.input.widget_code) {
+        const code = String(content.input.widget_code).trim();
+        const isSvg = /^<svg[\s>]/i.test(code);
+        artifacts.push({
+          title: content.input.title || 'visual',
+          language: isSvg ? 'svg' : 'html',
+          type: 'visual',
+          identifier: null,
+          content: isSvg ? _styleSvgVisual(code) : code,
+        });
       }
 
       // OLD FORMAT: Check text content for <antArtifact> tags
@@ -883,6 +1099,10 @@ function extractArtifactFiles(data, artifactFormat = 'original') {
       );
 
       let filename = converted.filename;
+
+      // Inline visuals get their own subfolder; JSZip treats the path
+      // separator as a nested folder at every assembly site.
+      if (artifact.type === 'visual') filename = `visuals/${filename}`;
 
       // Handle duplicate filenames
       let counter = 1;
@@ -1397,7 +1617,10 @@ if (typeof module !== 'undefined' && module.exports) {
     convertToText,
     convertToObsidian,
     obsidianFilename,
+    _mdToHtml,
+    _inlineHtml,
     convertToHTML,
+    exportConversationToPdf,
     downloadFile,
     extractArtifactsFromMessage,
     extractArtifactsFromText,
