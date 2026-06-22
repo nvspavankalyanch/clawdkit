@@ -243,18 +243,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             includeThinking: request.includeThinking,
             theme: detectClaudeTheme()
           });
-          const win = window.open('about:blank', '_blank');
+          const _blob = new Blob([html], { type: 'text/html' });
+          const _url = URL.createObjectURL(_blob);
+          const win = window.open(_url, '_blank');
           if (!win) {
+            URL.revokeObjectURL(_url);
             sendResponse({ success: false, error: 'PDF preview was blocked by your browser. Allow popups for claude.ai and try again.' });
             return;
           }
-          win.document.open();
-          win.document.write(html);
-          win.document.close();
-          // The inline onclick is blocked by the inherited CSP, so wire the
-          // print button from this (opener) context instead.
-          const printBtn = win.document.getElementById('cc-print-btn');
-          if (printBtn) printBtn.addEventListener('click', () => win.print());
+          win.addEventListener('load', () => {
+            URL.revokeObjectURL(_url);
+            const printBtn = win.document.getElementById('cc-print-btn');
+            if (printBtn) printBtn.addEventListener('click', () => win.print());
+          });
           win.focus();
           recordExportTimestamp(request.conversationId);
           sendResponse({ success: true });

@@ -19,7 +19,9 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://claude.ai/*"],
+      "matches": [
+        "https://claude.ai/*"
+      ],
       "js": [
         "jszip.min.js",
         "utils.js",
@@ -38,7 +40,9 @@
     }
   ],
   "background": {
-    "scripts": ["background.js"]
+    "scripts": [
+      "background.js"
+    ]
   },
   "icons": {
     "16": "icon16.png",
@@ -49,13 +53,17 @@
     "page": "options.html",
     "open_in_tab": true
   },
-  "web_accessible_resources": ["browse.html", "counter/bridge.js"],
+  "web_accessible_resources": [
+    "browse.html",
+    "counter/bridge.js"
+  ],
   "browser_specific_settings": {
     "gecko": {
-      "id": "{25798758-c184-470a-bb5b-9fa76a09d9b5}",
+      "id": "{34bb82f0-c047-4c69-bee3-7109585e3948}",
       "strict_min_version": "79.0",
       "data_collection_permissions": {
-        "required": ["none"]
+        "required": ["none"],
+        "optional": []
       }
     }
   }
