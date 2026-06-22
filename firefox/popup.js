@@ -85,15 +85,25 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Swap "Options" for a clickable link when the message points users to the options page
     if (type === 'error' && message.includes('Please set this value in Options.')) {
-      const linked = message.replace('Options.', '<a href="#" id="statusOpenOptions">Options</a>.');
-      statusEl.innerHTML = linked;
+      statusEl.textContent = '';
+      const _parts = message.split('Options.');
+      statusEl.appendChild(document.createTextNode(_parts[0]));
+      const _a = Object.assign(document.createElement('a'), { href: '#', id: 'statusOpenOptions', textContent: 'Options' });
+      statusEl.appendChild(_a);
+      statusEl.appendChild(document.createTextNode('.' + (_parts[1] || '')));
       document.getElementById('statusOpenOptions').addEventListener('click', (e) => {
         e.preventDefault();
         chrome.runtime.openOptionsPage();
       });
     } else if (type === 'error' && (message.includes('403') || message.includes('404'))) {
       // Legacy 403/404 hint
-      statusEl.innerHTML = `${message}<br>Is your <a href="#" id="statusOpenOptions">Organization ID</a> correct?`;
+      statusEl.textContent = '';
+      statusEl.appendChild(document.createTextNode(message));
+      statusEl.appendChild(document.createElement('br'));
+      statusEl.appendChild(document.createTextNode('Is your '));
+      const _a = Object.assign(document.createElement('a'), { href: '#', id: 'statusOpenOptions', textContent: 'Organization ID' });
+      statusEl.appendChild(_a);
+      statusEl.appendChild(document.createTextNode(' correct?'));
       document.getElementById('statusOpenOptions').addEventListener('click', (e) => {
         e.preventDefault();
         chrome.runtime.openOptionsPage();

@@ -18,6 +18,12 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+// Safe alternative to innerHTML: parses html in an isolated document and moves nodes in
+function setHTML(el, html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  el.replaceChildren(...Array.from(doc.body.childNodes));
+}
+
 async function downloadConversationFile(orgId, file) {
   let url;
   if (file.file_kind === 'image') {
@@ -254,7 +260,7 @@ function renderFoldersList() {
       <span class="folder-count ct">${unfiledCount || ''}</span>
     </div>`;
 
-  list.innerHTML = html;
+  setHTML(list, html);
 
   // Wire up folder item clicks (filter)
   list.querySelectorAll('.folder-item').forEach(el => {
@@ -326,7 +332,7 @@ function renderFolderAssignDropdown() {
   html += `<div class="folder-assign-option folder-assign-unfiled" data-id="__unfiled__">
     <span class="folder-dot" style="background:#9ca3af"></span>Unfiled (remove from folder)
   </div>`;
-  dropdown.innerHTML = html;
+  setHTML(dropdown, html);
   dropdown.querySelectorAll('.folder-assign-option').forEach(opt => {
     opt.addEventListener('click', e => {
       e.stopPropagation();
@@ -343,13 +349,13 @@ function showNewFolderInput() {
   let selectedColor = FOLDER_COLORS[0];
   const row = document.createElement('div');
   row.className = 'folder-new-input-row';
-  row.innerHTML = `
+  setHTML(row, `
     <div class="folder-color-swatches">
       ${FOLDER_COLORS.map((c, i) => `<button class="folder-swatch${i === 0 ? ' selected' : ''}" data-color="${c}" style="background:${c}" title="${c}"></button>`).join('')}
     </div>
     <div class="folder-new-input-wrap">
       <input class="folder-new-input" type="text" placeholder="Folder name…" maxlength="40">
-    </div>`;
+    </div>`);
   list.appendChild(row);
 
   const input = row.querySelector('.folder-new-input');
@@ -602,7 +608,7 @@ function renderBookmarksView(bookmarks) {
     </tr>`;
   }).join('');
 
-  document.getElementById('tableContent').innerHTML = `
+  setHTML(document.getElementById('tableContent'), `
     <table class="conv-table">
       <thead><tr>
         <th>Conversation</th>
@@ -612,7 +618,7 @@ function renderBookmarksView(bookmarks) {
         <th></th>
       </tr></thead>
       <tbody>${rows}</tbody>
-    </table>`;
+    </table>`);
 
   document.querySelectorAll('.bm-del-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -1147,9 +1153,7 @@ function displayConversations() {
     </table>
   `;
 
-  // Security: All user-provided data in html has been sanitized with escapeHtml()
-  // before concatenation. The HTML structure itself is static/trusted template code.
-  tableContent.innerHTML = html;
+  setHTML(tableContent, html);
 
   // Drag-and-drop: table rows are drag sources for folder assignment
   document.querySelectorAll('tbody tr[data-id]').forEach(row => {
@@ -1862,7 +1866,7 @@ function populateProjectDropdown() {
     return (a.name || a.title || '').toLowerCase().localeCompare((b.name || b.title || '').toLowerCase());
   });
 
-  optionsContainer.innerHTML = sorted.map(p => {
+  setHTML(optionsContainer, sorted.map(p => {
     const pid = p.uuid || p.id;
     const pname = p.name || p.title || 'Untitled Project';
     const count = counts[pid] || 0;
@@ -1870,7 +1874,7 @@ function populateProjectDropdown() {
       ${escapeHtml(pname)}
       <span class="project-meta">${count} conversation${count === 1 ? '' : 's'}</span>
     </div>`;
-  }).join('');
+  }).join(''));
 
   optionsContainer.querySelectorAll('.project-option').forEach(opt => {
     opt.addEventListener('click', () => {

@@ -642,14 +642,18 @@ function convertToHTML(data, conversationId, options) {
 // window.open is blocked. Returns { filename } on success.
 function exportConversationToPdf(data, conversationId, options) {
   const html = convertToHTML(data, conversationId, options);
-  const win = window.open('about:blank', '_blank');
-  if (!win) throw new Error('PDF preview was blocked. Allow popups for this page and try again.');
-  win.document.open();
-  win.document.write(html);
-  win.document.close();
-  // Wire the print button from the opener context — about:blank may inherit CSP from the opener.
-  const printBtn = win.document.getElementById('cc-print-btn');
-  if (printBtn) printBtn.addEventListener('click', () => win.print());
+  const _blob = new Blob([html], { type: 'text/html' });
+  const _url = URL.createObjectURL(_blob);
+  const win = window.open(_url, '_blank');
+  if (!win) {
+    URL.revokeObjectURL(_url);
+    throw new Error('PDF preview was blocked. Allow popups for this page and try again.');
+  }
+  win.addEventListener('load', () => {
+    URL.revokeObjectURL(_url);
+    const printBtn = win.document.getElementById('cc-print-btn');
+    if (printBtn) printBtn.addEventListener('click', () => win.print());
+  });
   win.focus();
   const safeTitle = (options && options.filename) || data.name || conversationId || 'conversation';
   return { filename: `${safeTitle}.pdf` };
@@ -1328,8 +1332,8 @@ function showImportModeModal(onConfirm) {
 
   const overlay = document.createElement('div');
   overlay.className = 'ce-modal-overlay';
-  overlay.innerHTML = `
-    <div class="ce-modal" role="dialog" aria-modal="true" aria-labelledby="ce-modal-title">
+  const _parser = new DOMParser();
+  const _modalDoc = _parser.parseFromString(`<div class="ce-modal" role="dialog" aria-modal="true" aria-labelledby="ce-modal-title">
       <h2 id="ce-modal-title">Import Backup</h2>
       <div class="ce-modal-info">
         Choose how the imported data should be combined with your current data, then pick a backup file.
@@ -1346,10 +1350,10 @@ function showImportModeModal(onConfirm) {
       </label>
       <div class="ce-modal-actions">
         <button type="button" class="ce-modal-cancel">Cancel</button>
-        <button type="button" class="ce-modal-import">Choose File&hellip;</button>
+        <button type="button" class="ce-modal-import">Choose File…</button>
       </div>
-    </div>
-  `;
+    </div>`, 'text/html');
+  overlay.appendChild(document.adoptNode(_modalDoc.body.firstChild));
 
   document.body.appendChild(overlay);
 
