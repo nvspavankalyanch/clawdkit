@@ -231,7 +231,7 @@
 				ui.attachHeader();
 			}
 		});
-		waitForElement(CC.DOM.CHAT_MENU_TRIGGER, 60000).then((el) => {
+		waitForElement(CC.DOM.CHAT_MENU_TRIGGER, 5000).then((el) => {
 			if (el) ui.attachHeader();
 		});
 

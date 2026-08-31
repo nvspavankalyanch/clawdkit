@@ -341,8 +341,9 @@
 			if (!this.usageLine) return;
 			const modelSelector = document.querySelector(CC.DOM.MODEL_SELECTOR_DROPDOWN);
 			if (!modelSelector) return;
-			const gridContainer = modelSelector.closest('[data-testid="chat-input-grid-container"]');
-			const gridArea = modelSelector.closest('[data-testid="chat-input-grid-area"]');
+			const chatInput = modelSelector.closest(CC.DOM.CHAT_INPUT);
+			const gridContainer = chatInput || modelSelector.closest(CC.DOM.CHAT_INPUT_LEGACY);
+			const gridArea = chatInput || modelSelector.closest('[data-testid="chat-input-grid-area"]');
 			const findToolbarRow = (el, stopAt) => {
 				let cur = el;
 				while (cur && cur !== document.body) {
