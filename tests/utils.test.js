@@ -382,6 +382,7 @@ describe('formatModelName — full family × shape matrix', () => {
     ['sonnet', 'Sonnet'],
     ['opus', 'Opus'],
     ['haiku', 'Haiku'],
+    ['fable', 'Fable'],
   ];
 
   for (const [family, label] of families) {
@@ -490,6 +491,8 @@ describe('getModelBadgeClass', () => {
     expect(getModelBadgeClass('claude-sonnet-4-5-20250929')).toBe('sonnet');
     expect(getModelBadgeClass('claude-opus-4-7')).toBe('opus');
     expect(getModelBadgeClass('claude-haiku-3-5')).toBe('haiku');
+    expect(getModelBadgeClass('claude-fable-5')).toBe('fable');
+    expect(getModelBadgeClass('claude-fable-5-0-20260901')).toBe('fable');
   });
 
   it('returns empty string for unknown family', () => {

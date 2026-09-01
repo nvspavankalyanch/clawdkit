@@ -642,18 +642,14 @@ function convertToHTML(data, conversationId, options) {
 // window.open is blocked. Returns { filename } on success.
 function exportConversationToPdf(data, conversationId, options) {
   const html = convertToHTML(data, conversationId, options);
-  const _blob = new Blob([html], { type: 'text/html' });
-  const _url = URL.createObjectURL(_blob);
-  const win = window.open(_url, '_blank');
-  if (!win) {
-    URL.revokeObjectURL(_url);
-    throw new Error('PDF preview was blocked. Allow popups for this page and try again.');
-  }
-  win.addEventListener('load', () => {
-    URL.revokeObjectURL(_url);
-    const printBtn = win.document.getElementById('cc-print-btn');
-    if (printBtn) printBtn.addEventListener('click', () => win.print());
-  });
+  const win = window.open('about:blank', '_blank');
+  if (!win) throw new Error('PDF preview was blocked. Allow popups for this page and try again.');
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  // Wire the print button from the opener context — about:blank may inherit CSP from the opener.
+  const printBtn = win.document.getElementById('cc-print-btn');
+  if (printBtn) printBtn.addEventListener('click', () => win.print());
   win.focus();
   const safeTitle = (options && options.filename) || data.name || conversationId || 'conversation';
   return { filename: `${safeTitle}.pdf` };
@@ -1159,18 +1155,18 @@ function inferModel(conversation) {
 
 // Format a model ID like `claude-sonnet-4-5-20250929` into "Claude Sonnet 4.5".
 // Schema reference: https://platform.claude.com/docs/en/about-claude/models/model-ids-and-versions
-// Handles three documented shapes for the sonnet/opus/haiku families:
+// Handles three documented shapes for the sonnet/opus/haiku/fable families:
 //   - Dateless 4.6+:        claude-{name}-{major}-{minor}            (canonical snapshot)
 //   - Dated pre-4.6:        claude-{name}-{major}-{minor}-{YYYYMMDD}
 //   - Convenience alias:    claude-{name}-{major}-{minor}            (resolves to most recent dated snapshot)
-// Unknown families (anything not in `(sonnet|opus|haiku)`) fall through to raw display.
+// Unknown families (anything not in `(sonnet|opus|haiku|fable)`) fall through to raw display.
 function formatModelName(model) {
   if (!model || !model.startsWith('claude-')) {
     return model || 'Unknown';
   }
 
   // New format: claude-{type}-{major}[-{minor}][-{date}]
-  const newFormatMatch = model.match(/^claude-(sonnet|opus|haiku)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/i);
+  const newFormatMatch = model.match(/^claude-(sonnet|opus|haiku|fable)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/i);
   if (newFormatMatch) {
     const [, modelType, major, minor] = newFormatMatch;
     const modelName = modelType.charAt(0).toUpperCase() + modelType.slice(1);
@@ -1179,7 +1175,7 @@ function formatModelName(model) {
   }
 
   // Old format: claude-{major}[-{minor}]-{type}-{date}
-  const oldFormatMatch = model.match(/^claude-(\d+)(?:-(\d+))?-(sonnet|opus|haiku)-\d{8}$/i);
+  const oldFormatMatch = model.match(/^claude-(\d+)(?:-(\d+))?-(sonnet|opus|haiku|fable)-\d{8}$/i);
   if (oldFormatMatch) {
     const [, major, minor, modelType] = oldFormatMatch;
     const modelName = modelType.charAt(0).toUpperCase() + modelType.slice(1);
@@ -1196,6 +1192,7 @@ function getModelBadgeClass(model) {
   if (model.includes('sonnet')) return 'sonnet';
   if (model.includes('opus')) return 'opus';
   if (model.includes('haiku')) return 'haiku';
+  if (model.includes('fable')) return 'fable';
   return '';
 }
 
@@ -1332,8 +1329,8 @@ function showImportModeModal(onConfirm) {
 
   const overlay = document.createElement('div');
   overlay.className = 'ce-modal-overlay';
-  const _parser = new DOMParser();
-  const _modalDoc = _parser.parseFromString(`<div class="ce-modal" role="dialog" aria-modal="true" aria-labelledby="ce-modal-title">
+  overlay.innerHTML = `
+    <div class="ce-modal" role="dialog" aria-modal="true" aria-labelledby="ce-modal-title">
       <h2 id="ce-modal-title">Import Backup</h2>
       <div class="ce-modal-info">
         Choose how the imported data should be combined with your current data, then pick a backup file.
@@ -1350,10 +1347,10 @@ function showImportModeModal(onConfirm) {
       </label>
       <div class="ce-modal-actions">
         <button type="button" class="ce-modal-cancel">Cancel</button>
-        <button type="button" class="ce-modal-import">Choose File…</button>
+        <button type="button" class="ce-modal-import">Choose File&hellip;</button>
       </div>
-    </div>`, 'text/html');
-  overlay.appendChild(document.adoptNode(_modalDoc.body.firstChild));
+    </div>
+  `;
 
   document.body.appendChild(overlay);
 
