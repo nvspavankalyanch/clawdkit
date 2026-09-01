@@ -1155,18 +1155,18 @@ function inferModel(conversation) {
 
 // Format a model ID like `claude-sonnet-4-5-20250929` into "Claude Sonnet 4.5".
 // Schema reference: https://platform.claude.com/docs/en/about-claude/models/model-ids-and-versions
-// Handles three documented shapes for the sonnet/opus/haiku families:
+// Handles three documented shapes for the sonnet/opus/haiku/fable families:
 //   - Dateless 4.6+:        claude-{name}-{major}-{minor}            (canonical snapshot)
 //   - Dated pre-4.6:        claude-{name}-{major}-{minor}-{YYYYMMDD}
 //   - Convenience alias:    claude-{name}-{major}-{minor}            (resolves to most recent dated snapshot)
-// Unknown families (anything not in `(sonnet|opus|haiku)`) fall through to raw display.
+// Unknown families (anything not in `(sonnet|opus|haiku|fable)`) fall through to raw display.
 function formatModelName(model) {
   if (!model || !model.startsWith('claude-')) {
     return model || 'Unknown';
   }
 
   // New format: claude-{type}-{major}[-{minor}][-{date}]
-  const newFormatMatch = model.match(/^claude-(sonnet|opus|haiku)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/i);
+  const newFormatMatch = model.match(/^claude-(sonnet|opus|haiku|fable)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/i);
   if (newFormatMatch) {
     const [, modelType, major, minor] = newFormatMatch;
     const modelName = modelType.charAt(0).toUpperCase() + modelType.slice(1);
@@ -1175,7 +1175,7 @@ function formatModelName(model) {
   }
 
   // Old format: claude-{major}[-{minor}]-{type}-{date}
-  const oldFormatMatch = model.match(/^claude-(\d+)(?:-(\d+))?-(sonnet|opus|haiku)-\d{8}$/i);
+  const oldFormatMatch = model.match(/^claude-(\d+)(?:-(\d+))?-(sonnet|opus|haiku|fable)-\d{8}$/i);
   if (oldFormatMatch) {
     const [, major, minor, modelType] = oldFormatMatch;
     const modelName = modelType.charAt(0).toUpperCase() + modelType.slice(1);
@@ -1192,6 +1192,7 @@ function getModelBadgeClass(model) {
   if (model.includes('sonnet')) return 'sonnet';
   if (model.includes('opus')) return 'opus';
   if (model.includes('haiku')) return 'haiku';
+  if (model.includes('fable')) return 'fable';
   return '';
 }
 

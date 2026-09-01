@@ -313,6 +313,7 @@
 		}
 
 		attachHeader() {
+			// Primary: attach to chat-menu-trigger if it exists (legacy layout)
 			const chatMenu = document.querySelector(CC.DOM.CHAT_MENU_TRIGGER);
 			if (chatMenu) {
 				const anchor = chatMenu.closest(CC.DOM.CHAT_PROJECT_WRAPPER) || chatMenu.parentElement;
@@ -325,9 +326,10 @@
 					return;
 				}
 			}
-			// Fallback: claude.ai removed the chat-menu-trigger testid from the top
-			// bar. Mount the tokens/cache header just above the usage line instead —
-			// its anchor (the model selector) is still present.
+
+			// Fallback: mount above the usage line (which is now positioned
+			// below the chat input / footer area). This keeps the token count
+			// visible near the usage bars.
 			if (this.usageLine && this.usageLine.parentElement) {
 				if (this.usageLine.previousElementSibling !== this.headerContainer) {
 					this.usageLine.before(this.headerContainer);
@@ -337,21 +339,49 @@
 			}
 		}
 
+
 		attachUsageLine() {
 			if (!this.usageLine) return;
 			const modelSelector = document.querySelector(CC.DOM.MODEL_SELECTOR_DROPDOWN);
 			if (!modelSelector) return;
-			const gridContainer = modelSelector.closest('[data-testid="chat-input-grid-container"]');
-			const gridArea = modelSelector.closest('[data-testid="chat-input-grid-area"]');
-			const findToolbarRow = (el, stopAt) => {
-				let cur = el;
+
+			// Strategy: place the usage bars below the entire chat input container
+			// so they don't overlap the Chat/Cowork toggle or other toolbar elements.
+			//
+			// On the new-chat page (/new), the model selector is inside a floating
+			// card — inserting after the toolbar row collides with the Chat/Cowork
+			// toggle. Instead, we look for the footer/disclaimer line that sits
+			// below the input (contains "Claude is AI and can make mistakes..."),
+			// and insert after it. This keeps the bars visible but non-intrusive.
+			//
+			// On conversation pages (/chat/{id}), the model selector is also in
+			// or near the footer line. The same strategy works.
+
+			// Try to find the footer/disclaimer line below the input area.
+			// It's typically a sibling or child of the chat input container that
+			// contains the model name and disclaimer text.
+			const chatInput = modelSelector.closest(CC.DOM.CHAT_INPUT);
+			const gridContainer = chatInput
+				|| modelSelector.closest(CC.DOM.CHAT_INPUT_LEGACY)
+				|| modelSelector.closest('#static-composer-box')
+				|| modelSelector.closest('fieldset');
+
+			// Look for the footer row: it's a flex-row near the model selector that
+			// contains the disclaimer text ("Claude is AI...") and the model name.
+			// On the new layout, the model selector button is in this footer area.
+			const findFooterRow = (startEl, boundary) => {
+				// Walk up from model selector to find the row that contains it
+				// but stop before going above the chat input boundary.
+				let cur = startEl;
 				while (cur && cur !== document.body) {
-					if (stopAt && cur === stopAt) break;
-					if (cur !== el && cur.nodeType === 1) {
-						const style = window.getComputedStyle(cur);
-						if (style.display === 'flex' && style.flexDirection === 'row') {
-							const buttons = cur.querySelectorAll('button').length;
-							if (buttons > 1) return cur;
+					if (boundary && cur === boundary) break;
+					if (cur !== startEl && cur.nodeType === 1) {
+						// Check if this looks like the footer row — it's typically
+						// a flex-row at the bottom of the input area, containing
+						// text about AI mistakes and/or the model name display.
+						const text = cur.textContent || '';
+						if (text.includes('Claude is AI') || text.includes('double-check')) {
+							return cur;
 						}
 					}
 					cur = cur.parentElement;
@@ -359,16 +389,36 @@
 				return null;
 			};
 
-			const toolbarRow =
-				(gridContainer ? findToolbarRow(modelSelector, gridArea || gridContainer) : null) ||
-				findToolbarRow(modelSelector) ||
-				modelSelector.parentElement?.parentElement?.parentElement;
-			if (!toolbarRow) return;
-			if (toolbarRow.nextElementSibling !== this.usageLine) {
-				toolbarRow.after(this.usageLine);
+			// First try: insert after the footer/disclaimer row
+			const footerRow = findFooterRow(modelSelector, gridContainer?.parentElement);
+			if (footerRow) {
+				if (footerRow.nextElementSibling !== this.usageLine) {
+					footerRow.after(this.usageLine);
+				}
+				this.refreshProgressChrome();
+				return;
+			}
+
+			// Second try: insert after the entire chat input container
+			if (gridContainer) {
+				if (gridContainer.nextElementSibling !== this.usageLine) {
+					gridContainer.after(this.usageLine);
+				}
+				this.refreshProgressChrome();
+				return;
+			}
+
+			// Final fallback: insert after the model selector's grandparent
+			// (preserves old behavior for unrecognized layouts)
+			const fallback = modelSelector.parentElement?.parentElement?.parentElement;
+			if (fallback) {
+				if (fallback.nextElementSibling !== this.usageLine) {
+					fallback.after(this.usageLine);
+				}
 			}
 			this.refreshProgressChrome();
 		}
+
 
 		setPendingCache(pending) {
 			this.pendingCache = pending;

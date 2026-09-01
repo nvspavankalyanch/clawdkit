@@ -889,9 +889,10 @@ function initKeyboardShortcuts(shortcuts) {
       // Ctrl+Enter → send
       e.preventDefault();
       e.stopPropagation();
-      const sendBtn = document.querySelector('[data-testid="send-button"]') ||
-                     document.querySelector('button[aria-label="Send Message"]') ||
-                     document.querySelector('button[aria-label="Send message"]');
+      const sendBtn = document.querySelector('[data-testid="chat-input-send"]') ||
+                     document.querySelector('[data-testid="send-button"]') ||
+                     document.querySelector('button[aria-label="Send message"]') ||
+                     document.querySelector('button[aria-label="Send Message"]');
       if (sendBtn) sendBtn.click();
     }
   };
@@ -956,8 +957,8 @@ let _bmDebounce2 = null;
 function injectBookmarkButtons() {
   const convId = location.pathname.match(/\/chat\/([^/?]+)/)?.[1];
   const SELS = {
-    human: ['[data-testid="human-turn"]', '[data-testid="human-turn-inner"]'],
-    claude: ['[data-testid="ai-turn"]', '[data-testid="ai-turn-inner"]']
+    human: ['[data-testid="user-message"]', '[data-testid="human-turn"]', '[data-testid="human-turn-inner"]'],
+    claude: ['[data-testid="transcript-row"]:not(:has([data-testid="user-message"]))', '[data-testid="ai-turn"]', '[data-testid="ai-turn-inner"]']
   };
 
   for (const [sender, candidates] of Object.entries(SELS)) {
@@ -1095,7 +1096,7 @@ function injectCfhButtons() {
   if (_cfhSel && !document.querySelector(_cfhSel)) _cfhSel = null;
 
   if (!_cfhSel) {
-    for (const sel of ['[data-testid="ai-turn"]', '[data-testid="ai-turn-inner"]']) {
+    for (const sel of ['[data-testid="transcript-row"]:not(:has([data-testid="user-message"]))', '[data-testid="ai-turn"]', '[data-testid="ai-turn-inner"]']) {
       if (document.querySelector(sel)) { _cfhSel = sel; break; }
     }
   }

@@ -42,6 +42,9 @@
    Overrides claude.ai's max-width constraints on the conversation and input areas.
    Uses data-testid selectors (stable) + .mx-auto Tailwind class (less stable).
    If claude.ai's DOM changes, these selectors may need an update. */
+body[data-ct-wide] [data-testid="chat-input"],
+body[data-ct-wide] [data-testid="chat-column"],
+body[data-ct-wide] [data-testid="transcript-list"],
 body[data-ct-wide] [data-testid="chat-input-grid-container"],
 body[data-ct-wide] [data-testid="chat-input-grid-area"],
 body[data-ct-wide] [data-testid="conversation-turn-wrapper"] {

@@ -243,19 +243,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             includeThinking: request.includeThinking,
             theme: detectClaudeTheme()
           });
-          const _blob = new Blob([html], { type: 'text/html' });
-          const _url = URL.createObjectURL(_blob);
-          const win = window.open(_url, '_blank');
+          const win = window.open('about:blank', '_blank');
           if (!win) {
-            URL.revokeObjectURL(_url);
             sendResponse({ success: false, error: 'PDF preview was blocked by your browser. Allow popups for claude.ai and try again.' });
             return;
           }
-          win.addEventListener('load', () => {
-            URL.revokeObjectURL(_url);
-            const printBtn = win.document.getElementById('cc-print-btn');
-            if (printBtn) printBtn.addEventListener('click', () => win.print());
-          });
+          win.document.open();
+          win.document.write(html);
+          win.document.close();
+          // The inline onclick is blocked by the inherited CSP, so wire the
+          // print button from this (opener) context instead.
+          const printBtn = win.document.getElementById('cc-print-btn');
+          if (printBtn) printBtn.addEventListener('click', () => win.print());
           win.focus();
           recordExportTimestamp(request.conversationId);
           sendResponse({ success: true });
@@ -890,9 +889,10 @@ function initKeyboardShortcuts(shortcuts) {
       // Ctrl+Enter → send
       e.preventDefault();
       e.stopPropagation();
-      const sendBtn = document.querySelector('[data-testid="send-button"]') ||
-                     document.querySelector('button[aria-label="Send Message"]') ||
-                     document.querySelector('button[aria-label="Send message"]');
+      const sendBtn = document.querySelector('[data-testid="chat-input-send"]') ||
+                     document.querySelector('[data-testid="send-button"]') ||
+                     document.querySelector('button[aria-label="Send message"]') ||
+                     document.querySelector('button[aria-label="Send Message"]');
       if (sendBtn) sendBtn.click();
     }
   };
@@ -957,8 +957,8 @@ let _bmDebounce2 = null;
 function injectBookmarkButtons() {
   const convId = location.pathname.match(/\/chat\/([^/?]+)/)?.[1];
   const SELS = {
-    human: ['[data-testid="human-turn"]', '[data-testid="human-turn-inner"]'],
-    claude: ['[data-testid="ai-turn"]', '[data-testid="ai-turn-inner"]']
+    human: ['[data-testid="user-message"]', '[data-testid="human-turn"]', '[data-testid="human-turn-inner"]'],
+    claude: ['[data-testid="transcript-row"]:not(:has([data-testid="user-message"]))', '[data-testid="ai-turn"]', '[data-testid="ai-turn-inner"]']
   };
 
   for (const [sender, candidates] of Object.entries(SELS)) {
@@ -1096,7 +1096,7 @@ function injectCfhButtons() {
   if (_cfhSel && !document.querySelector(_cfhSel)) _cfhSel = null;
 
   if (!_cfhSel) {
-    for (const sel of ['[data-testid="ai-turn"]', '[data-testid="ai-turn-inner"]']) {
+    for (const sel of ['[data-testid="transcript-row"]:not(:has([data-testid="user-message"]))', '[data-testid="ai-turn"]', '[data-testid="ai-turn-inner"]']) {
       if (document.querySelector(sel)) { _cfhSel = sel; break; }
     }
   }
